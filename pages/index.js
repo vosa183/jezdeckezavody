@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Spojení s databází pomocí klíčů, které jsi právě uložil do Vercelu
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -14,47 +13,51 @@ export default function Home() {
 
   const handleSignUp = async (e) => {
     e.preventDefault()
-    // Pokus o registraci nového jezdce
     const { error } = await supabase.auth.signUp({ email, password })
-    if (error) setMessage('Chyba: ' + error.message)
-    else setMessage('Úspěch! Zkontroluj si svůj e-mail a klikni na potvrzovací odkaz.')
+    if (error) setMessage(error.message)
+    else setMessage('Úspěch! Zkontroluj svůj e-mail pro potvrzení.')
+  }
+
+  const handleSignIn = async (e) => {
+    e.preventDefault()
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setMessage(error.message)
+    else setMessage('Přihlášen! Vítej na závodech.')
   }
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'Arial, sans-serif', maxWidth: '400px' }}>
-      <h1>Jezdecké závody</h1>
-      <hr />
-      <h2>Registrace nového jezdce</h2>
-      <form onSubmit={handleSignUp}>
-        <div style={{ marginBottom: '15px' }}>
-          <label>E-mail:</label>
+    <div style={{ 
+      backgroundColor: '#1a365d', 
+      minHeight: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      fontFamily: 'sans-serif'
+    }}>
+      <div style={{ backgroundColor: 'white', padding: '2rem', borderRadius: '1rem', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxWidth: '400px', width: '100%' }}>
+        <h1 style={{ textAlign: 'center', color: '#1a365d' }}>Jezdecké závody</h1>
+        <form style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <input 
             type="email" 
-            value={email} 
-            onChange={e => setEmail(e.target.value)} 
-            style={{ display: 'block', width: '100%', padding: '8px' }} 
-            required 
+            placeholder="Tvůj e-mail" 
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ padding: '0.5rem', border: '1px solid #ccc', borderRadius: '0.25rem' }}
           />
-        </div>
-        <div style={{ marginBottom: '15px' }}>
-          <label>Heslo (min. 6 znaků):</label>
           <input 
             type="password" 
-            value={password} 
-            onChange={e => setPassword(e.target.value)} 
-            style={{ display: 'block', width: '100%', padding: '8px' }} 
-            required 
+            placeholder="Heslo" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ padding: '0.5rem', border: '1px solid #ccc', borderRadius: '0.25rem' }}
           />
-        </div>
-        <button type="submit" style={{ padding: '10px 20px', cursor: 'pointer', background: '#0070f3', color: 'white', border: 'none', borderRadius: '5px' }}>
-          Zaregistrovat se
-        </button>
-      </form>
-      {message && (
-        <div style={{ marginTop: '20px', padding: '10px', backgroundColor: '#eef', borderRadius: '5px' }}>
-          {message}
-        </div>
-      )}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={handleSignIn} style={{ flex: 1, backgroundColor: '#2b6cb0', color: 'white', padding: '0.5rem', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Přihlásit se</button>
+            <button onClick={handleSignUp} style={{ flex: 1, backgroundColor: '#48bb78', color: 'white', padding: '0.5rem', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Registrovat</button>
+          </div>
+        </form>
+        {message && <p style={{ marginTop: '1rem', textAlign: 'center', color: '#e53e3e' }}>{message}</p>}
+      </div>
     </div>
   )
 }
