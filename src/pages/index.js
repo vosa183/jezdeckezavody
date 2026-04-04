@@ -1,149 +1,91 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Inicializace Supabase klienta pomocí klíčů z Vercel Environment Variables
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
 export default function Home() {
+  const [user, setUser] = useState(null)
+  const [role, setRole] = useState(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [participants, setParticipants] = useState([])
 
-  // Registrace nového uživatele
-  const handleSignUp = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    const { error } = await supabase.auth.signUp({ 
-      email, 
-      password,
-      options: {
-        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : '',
-      }
-    })
-    if (error) setMessage('Chyba: ' + error.message)
-    else setMessage('Úspěch! Zkontroluj svůj e-mail a klikni na potvrzovací odkaz.')
+  useEffect(() => {
+    checkUser()
+  }, [])
+
+  async function checkUser() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      setUser(user)
+      const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+      setRole(data?.role)
+      fetchParticipants()
+    }
     setLoading(false)
   }
 
-  // Přihlášení stávajícího uživatele
+  async function fetchParticipants() {
+    const { data } = await supabase.from('race_participants').select('*')
+    if (data) setParticipants(data)
+  }
+
   const handleSignIn = async (e) => {
     e.preventDefault()
-    setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setMessage('Chyba: ' + error.message)
-    else setMessage('Přihlášen! Vítej na závodech.')
-    setLoading(false)
+    if (!error) window.location.reload()
+  }
+
+  if (loading) return <div style={{background: '#1a365d', height: '100vh', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>Načítám...</div>
+
+  if (role === 'admin') {
+    return (
+      <div style={{ padding: '20px', backgroundColor: '#f7fafc', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+        <h1 style={{ color: '#1a365d' }}>Admin Panel - Startovní listina (1-50)</h1>
+        <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#2b6cb0', color: 'white' }}>
+              <th style={{ padding: '12px', border: '1px solid #ddd' }}>Číslo</th>
+              <th style={{ padding: '12px', border: '1px solid #ddd' }}>Jezdec / Kůň</th>
+              <th style={{ padding: '12px', border: '1px solid #ddd' }}>Akce</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 50 }, (_, i) => i + 1).map(num => {
+              const p = participants.find(x => x.start_number === num)
+              return (
+                <tr key={num}>
+                  <td style={{ padding: '10px', border: '1px solid #ddd', textAlign: 'center', fontWeight: 'bold' }}>{num}</td>
+                  <td style={{ padding: '10px', border: '1px solid #ddd' }}>
+                    {p ? `${p.rider_name} - ${p.horse_name}` : <em style={{color: '#ccc'}}>Volno</em>}
+                  </td>
+                  <td style={{ padding: '10px', border: '1px solid #ddd', textAlign: 'center' }}>
+                    <button style={{ backgroundColor: '#48bb78', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
+                      Zapsat jezdce
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
   }
 
   return (
-    <div style={{ 
-      backgroundColor: '#1a365d', 
-      minHeight: '100vh', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      fontFamily: 'sans-serif',
-      margin: 0,
-      padding: '20px'
-    }}>
-      <div style={{ 
-        backgroundColor: 'white', 
-        padding: '2.5rem', 
-        borderRadius: '1rem', 
-        boxShadow: '0 10px 25px rgba(0,0,0,0.3)', 
-        maxWidth: '400px', 
-        width: '100%' 
-      }}>
-        <h1 style={{ textAlign: 'center', color: '#1a365d', marginBottom: '1.5rem', fontSize: '1.8rem' }}>
-          Jezdecké závody
-        </h1>
-        
-        <form style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#4a5568', fontWeight: '600' }}>
-              E-mail:
-            </label>
-            <input 
-              type="email" 
-              placeholder="vosa183@seznam.cz" 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{ width: '100%', padding: '0.8rem', border: '1px solid #cbd5e0', borderRadius: '0.5rem', boxSizing: 'border-box' }}
-              required
-            />
-          </div>
-          
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#4a5568', fontWeight: '600' }}>
-              Heslo (min. 6 znaků):
-            </label>
-            <input 
-              type="password" 
-              placeholder="******" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{ width: '100%', padding: '0.8rem', border: '1px solid #cbd5e0', borderRadius: '0.5rem', boxSizing: 'border-box' }}
-              required
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: '15px', marginTop: '0.5rem' }}>
-            <button 
-              onClick={handleSignIn} 
-              disabled={loading}
-              style={{ 
-                flex: 1, 
-                backgroundColor: '#2b6cb0', 
-                color: 'white', 
-                padding: '0.9rem', 
-                border: 'none', 
-                borderRadius: '0.5rem', 
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                transition: 'background-color 0.2s'
-              }}
-            >
-              {loading ? 'Čekej...' : 'Přihlásit se'}
-            </button>
-            <button 
-              onClick={handleSignUp} 
-              disabled={loading}
-              style={{ 
-                flex: 1, 
-                backgroundColor: '#48bb78', 
-                color: 'white', 
-                padding: '0.9rem', 
-                border: 'none', 
-                borderRadius: '0.5rem', 
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                transition: 'background-color 0.2s'
-              }}
-            >
-              {loading ? 'Čekej...' : 'Registrovat'}
-            </button>
-          </div>
+    <div style={{ backgroundColor: '#1a365d', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+      <div style={{ backgroundColor: 'white', padding: '2.5rem', borderRadius: '1rem', width: '100%', maxWidth: '400px' }}>
+        <h1 style={{ textAlign: 'center', color: '#1a365d' }}>Přihlášení pořadatele</h1>
+        <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={{ padding: '0.8rem', border: '1px solid #ccc', borderRadius: '0.5rem' }} />
+          <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={{ padding: '0.8rem', border: '1px solid #ccc', borderRadius: '0.5rem' }} />
+          <button type="submit" style={{ backgroundColor: '#2b6cb0', color: 'white', padding: '1rem', border: 'none', borderRadius: '0.5rem', fontWeight: 'bold', cursor: 'pointer' }}>Vstoupit do panelu</button>
         </form>
-
-        {message && (
-          <div style={{ 
-            marginTop: '1.5rem', 
-            padding: '1rem', 
-            borderRadius: '0.5rem', 
-            backgroundColor: message.includes('Chyba') ? '#fff5f5' : '#f0fff4',
-            color: message.includes('Chyba') ? '#c53030' : '#2f855a',
-            fontSize: '0.9rem',
-            textAlign: 'center',
-            border: `1px solid ${message.includes('Chyba') ? '#feb2b2' : '#9ae6b4'}`,
-            lineHeight: '1.4'
-          }}>
-            {message}
-          </div>
-        )}
       </div>
     </div>
   )
