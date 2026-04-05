@@ -54,7 +54,7 @@ export default function Home() {
         const { data: evts } = await supabase.from('events').select('*').eq('is_active', true);
         setEvents(evts || []);
 
-        const { data: prices } = await supabase.from('pricing').select('*');
+        const { data: prices } = await supabase.from('pricing').select('*').order('id');
         setPricing(prices || []);
 
         if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge') {
@@ -76,9 +76,15 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     if (isSignUp) {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else alert('Registrace úspěšná! Nyní se přihlaste.');
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        alert(error.message);
+      } else if (data?.user) {
+        // Tady je ta oprava! Zapíšeme ho hned do tabulky profiles, abys ho viděl.
+        await supabase.from('profiles').insert([{ id: data.user.id }]);
+        alert('Registrace úspěšná! Můžete vstoupit.');
+        window.location.reload();
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
@@ -115,6 +121,11 @@ export default function Home() {
     else { alert('Disciplína přidána do ceníku!'); window.location.reload(); }
   };
 
+  const updatePaymentNote = async (id, note) => {
+    await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
+    alert('Poznámka uložena');
+  };
+
   // HRÁČ FUNKCE
   const handleRaceRegistration = async () => {
     if (!selectedEvent || !selectedHorse || selectedDisciplines.length === 0) {
@@ -132,36 +143,51 @@ export default function Home() {
       const { data: newHorse, error: horseErr } = await supabase.from('horses')
         .insert([{ owner_id: user.id, name: newHorseName }])
         .select().single();
-      if (horseErr) return alert("Chyba: " + horseErr.message);
+      if (horseErr) return alert("Chyba při ukládání koně: " + horseErr.message);
       finalHorseName = newHorse.name;
     }
 
-    const { data: taken } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
-    const takenNumbers = taken?.map(t => t.start_number) || [];
-    const available = Array.from({ length: 50 }, (_, i) => i + 1).filter(n => !takenNumbers.includes(n));
+    // Losování startovního čísla (na záda)
+    const { data: takenNumbers } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
+    const taken = takenNumbers?.map(t => t.start_number) || [];
+    const available = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !taken.includes(n));
 
     if (available.length === 0) {
-      alert("Kapacita je vyčerpána!");
+      alert("Kapacita čísel je vyčerpána!");
       return;
     }
 
     const assignedNumber = available[Math.floor(Math.random() * available.length)];
 
-    const registrationData = selectedDisciplines.map(d => ({
-      user_id: user.id,
-      event_id: selectedEvent,
-      rider_name: profile?.full_name || user.email,
-      horse_name: finalHorseName,
-      discipline: d.discipline_name,
-      start_number: assignedNumber,
-      price: d.price,
-      is_paid: false
+    // Příprava dat s losováním startovního pořadí (DRAW) pro každou disciplínu zvlášť
+    const registrationData = await Promise.all(selectedDisciplines.map(async (d) => {
+      const { data: takenDraws } = await supabase.from('race_participants')
+        .select('draw_order')
+        .eq('event_id', selectedEvent)
+        .eq('discipline', d.discipline_name);
+        
+      const takenDrawOrders = takenDraws?.map(t => t.draw_order) || [];
+      const availableDraws = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
+      const assignedDraw = availableDraws[Math.floor(Math.random() * availableDraws.length)];
+
+      return {
+        user_id: user.id,
+        event_id: selectedEvent,
+        rider_name: profile?.full_name || user.email,
+        horse_name: finalHorseName,
+        discipline: d.discipline_name,
+        start_number: assignedNumber,
+        draw_order: assignedDraw,
+        price: d.price,
+        is_paid: false,
+        payment_note: ''
+      };
     }));
 
     const { error } = await supabase.from('race_participants').insert(registrationData);
     if (error) alert(error.message);
     else {
-      alert(`Přihláška odeslána! Vaše číslo je: ${assignedNumber}`);
+      alert(`Přihláška odeslána! Vaše startovní číslo na záda je: ${assignedNumber}. Pořadí do arény najdete u pořadatele.`);
       window.location.reload();
     }
   };
@@ -191,8 +217,8 @@ export default function Home() {
 
       {!user ? (
         <div style={styles.card}>
-          <h2 style={{textAlign: 'center', color: '#5d4037'}}>{isSignUp ? 'Nová registrace' : 'Přihlášení'}</h2>
-          <form onSubmit={handleAuth}>
+          <h2 style={{textAlign: 'center', color: '#5d4037', marginBottom: '15px'}}>{isSignUp ? 'Nová registrace' : 'Přihlášení'}</h2>
+          <form onSubmit={handleAuth} style={styles.form}>
             <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
             <input type="password" placeholder="Heslo (min. 6 znaků)" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
             <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT SE' : 'VSTOUPIT'}</button>
@@ -210,9 +236,10 @@ export default function Home() {
               <form onSubmit={updateProfile}>
                 <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                <input style={styles.inputSmall} placeholder="Číslo hospodářství (např. CZ12345678)" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} />
                 <button type="submit" style={styles.btnSave}>Uložit profil</button>
+                <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px'}}>Zrušit</button>
               </form>
             ) : (
               <div>
@@ -230,43 +257,63 @@ export default function Home() {
             {/* POHLED: ADMIN / SUPERADMIN */}
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
-                <h3>Správa Závodů (Admin)</h3>
+                <h3 style={{marginTop: 0, borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Správa Závodů (Admin)</h3>
                 
                 <div style={styles.adminSection}>
-                  <h4>1. Vypsat nový termín závodů</h4>
-                  <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px'}}>
-                    <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={styles.inputSmall} required/>
-                    <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={styles.inputSmall} required/>
+                  <h4 style={{margin: '0 0 10px 0'}}>1. Vypsat nový termín závodů</h4>
+                  <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                    <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
+                    <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
                     <button type="submit" style={styles.btnSave}>Přidat Závod</button>
                   </form>
                 </div>
 
                 <div style={styles.adminSection}>
-                  <h4>2. Přidat disciplínu do ceníku</h4>
-                  <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px'}}>
-                    <input type="text" placeholder="Název disciplíny" value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={styles.inputSmall} required/>
-                    <input type="number" placeholder="Cena v Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={styles.inputSmall} required/>
-                    <button type="submit" style={styles.btnSave}>Přidat do Ceníku</button>
+                  <h4 style={{margin: '0 0 10px 0'}}>2. Přidat disciplínu do ceníku</h4>
+                  <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                    <input type="text" placeholder="Název disciplíny" value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
+                    <input type="number" placeholder="Cena v Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '100px'}} required/>
+                    <button type="submit" style={styles.btnSave}>Přidat</button>
                   </form>
                   <p style={{fontSize: '0.8rem', color: '#666', marginTop: '5px'}}>Aktuálně v ceníku: {pricing.length} disciplín</p>
                 </div>
 
                 <div style={styles.adminSection}>
-                  <h4>Přihlášení jezdci</h4>
-                  <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', marginTop: '10px'}}>
-                    <thead>
-                      <tr style={{background: '#eee', textAlign: 'left'}}>
-                        <th>Č.</th><th>Jezdec</th><th>Kůň</th><th>Disciplína</th><th>Cena</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allRegistrations.map((r, i) => (
-                        <tr key={i} style={{borderBottom: '1px solid #eee'}}>
-                          <td>{r.start_number}</td><td>{r.rider_name}</td><td>{r.horse_name}</td><td>{r.discipline}</td><td>{r.price} Kč</td>
+                  <h4 style={{margin: '0 0 10px 0'}}>Přihlášení jezdci a startky</h4>
+                  <div style={{overflowX: 'auto'}}>
+                    <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse', marginTop: '10px'}}>
+                      <thead>
+                        <tr style={{background: '#eee', textAlign: 'left'}}>
+                          <th style={{padding: '8px'}}>Záda</th>
+                          <th style={{padding: '8px'}}>Draw</th>
+                          <th style={{padding: '8px'}}>Jezdec</th>
+                          <th style={{padding: '8px'}}>Kůň</th>
+                          <th style={{padding: '8px'}}>Disciplína</th>
+                          <th style={{padding: '8px'}}>Poznámka k platbě</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {allRegistrations.map((r, i) => (
+                          <tr key={i} style={{borderBottom: '1px solid #eee'}}>
+                            <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
+                            <td style={{padding: '8px', color: '#0277bd'}}><strong>{r.draw_order}</strong></td>
+                            <td style={{padding: '8px'}}>{r.rider_name}</td>
+                            <td style={{padding: '8px'}}>{r.horse_name}</td>
+                            <td style={{padding: '8px'}}>{r.discipline}</td>
+                            <td style={{padding: '8px'}}>
+                              <input 
+                                type="text" 
+                                defaultValue={r.payment_note || ''} 
+                                onBlur={(e) => updatePaymentNote(r.id, e.target.value)} 
+                                placeholder="např. Hotově"
+                                style={{padding: '5px', width: '100px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
@@ -274,8 +321,8 @@ export default function Home() {
             {/* POHLED: ROZHODČÍ */}
             {effectiveRole === 'judge' && (
               <div>
-                <h3>Rozhodčí panel</h3>
-                <p>Zde se brzy objeví digitální scoresheety k hodnocení.</p>
+                <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
+                <p>Zde se brzy objeví digitální scoresheety k hodnocení závodníků.</p>
               </div>
             )}
 
@@ -300,7 +347,7 @@ export default function Home() {
                   <input type="text" placeholder="Napište jméno koně..." value={newHorseName} onChange={e => setNewHorseName(e.target.value)} style={{...styles.input, border: '2px solid #8d6e63'}} />
                 )}
 
-                <label style={styles.label}>3. Disciplíny (Vyberte si):</label>
+                <label style={styles.label}>3. Disciplíny (Možno vybrat více):</label>
                 {pricing.length === 0 ? <p style={{color: 'red'}}>Admin ještě nevypsal ceník disciplín.</p> : (
                   <div style={styles.disciplineList}>
                     {pricing.map(d => (
@@ -331,15 +378,15 @@ export default function Home() {
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif' },
   superAdminBar: { background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px', overflowX: 'auto' },
-  tab: { background: '#333', color: '#fff', border: 'none', padding: '5px 15px', borderRadius: '4px', cursor: 'pointer' },
-  activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '5px 15px', borderRadius: '4px', fontWeight: 'bold' },
+  tab: { background: '#333', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' },
+  activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.85rem' },
   brandHeader: { textAlign: 'center', marginBottom: '20px' },
   logo: { width: '120px', borderRadius: '50%', border: '4px solid #5d4037' },
   title: { color: '#5d4037', margin: '10px 0 0 0' },
   subtitle: { color: '#8d6e63', fontSize: '0.8rem', letterSpacing: '2px', fontWeight: 'bold' },
   mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 2.5fr', gap: '20px', maxWidth: '1100px', margin: '0 auto' },
   card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: '100%', width: '100%' },
-  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' },
+  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content' },
   adminSection: { padding: '15px', border: '1px solid #ddd', borderRadius: '8px', marginBottom: '15px', background: '#fafafa' },
   input: { width: '100%', padding: '12px', margin: '8px 0', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   inputSmall: { width: '100%', padding: '10px', margin: '5px 0', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' },
@@ -350,7 +397,7 @@ const styles = {
   btnOutline: { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #5d4037', color: '#5d4037', borderRadius: '6px', cursor: 'pointer', marginTop: '10px' },
   btnSave: { padding: '10px 15px', background: '#4caf50', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' },
   btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.9rem', marginTop: '15px', display: 'block', width: '100%', textAlign: 'center' },
-  disciplineList: { maxHeight: '280px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '6px', marginTop: '8px' },
+  disciplineList: { maxHeight: '350px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '6px', marginTop: '8px' },
   disciplineItem: { display: 'flex', justifyContent: 'space-between', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer', fontSize: '0.95rem' },
   priceTag: { marginTop: '15px', fontSize: '1.2rem', fontWeight: 'bold', textAlign: 'right', color: '#5d4037' },
   loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4ece4' }
