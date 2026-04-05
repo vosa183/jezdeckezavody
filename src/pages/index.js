@@ -33,7 +33,7 @@ export default function Home() {
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
 
-  // Superadmin přepínač
+  // Přepínač rolí
   const [simulatedRole, setSimulatedRole] = useState(null);
 
   useEffect(() => {
@@ -120,7 +120,6 @@ export default function Home() {
     else { alert('Disciplína přidána do ceníku!'); window.location.reload(); }
   };
 
-  // Nové funkce pro úpravu a mazání ceníku
   const handleEditPrice = async (id, oldPrice) => {
     const newPrice = prompt("Zadejte novou cenu v Kč:", oldPrice);
     if (newPrice !== null && newPrice !== "") {
@@ -164,7 +163,6 @@ export default function Home() {
       finalHorseName = newHorse.name;
     }
 
-    // Losování startovního čísla (na záda)
     const { data: takenNumbers } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
     const taken = takenNumbers?.map(t => t.start_number) || [];
     const available = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !taken.includes(n));
@@ -176,7 +174,6 @@ export default function Home() {
 
     const assignedNumber = available[Math.floor(Math.random() * available.length)];
 
-    // Příprava dat s losováním startovního pořadí (DRAW) pro každou disciplínu zvlášť
     const registrationData = await Promise.all(selectedDisciplines.map(async (d) => {
       const { data: takenDraws } = await supabase.from('race_participants')
         .select('draw_order')
@@ -215,13 +212,17 @@ export default function Home() {
 
   return (
     <div style={styles.container}>
-      {/* SUPERADMIN LIŠTA */}
-      {profile?.role === 'superadmin' && (
+      {/* PŘEPÍNACÍ LIŠTA PRO ADMINA A SUPERADMINA */}
+      {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
         <div style={styles.superAdminBar}>
-          <strong>SUPERADMIN:</strong> 
-          <button onClick={() => setSimulatedRole('superadmin')} style={effectiveRole === 'superadmin' ? styles.activeTab : styles.tab}>Superadmin</button>
+          <strong>{profile?.role === 'superadmin' ? 'SUPERADMIN:' : 'ADMIN:'}</strong> 
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('superadmin')} style={effectiveRole === 'superadmin' ? styles.activeTab : styles.tab}>Superadmin</button>
+          )}
           <button onClick={() => setSimulatedRole('admin')} style={effectiveRole === 'admin' ? styles.activeTab : styles.tab}>Admin Pohled</button>
-          <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Rozhodčí Pohled</button>
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Rozhodčí Pohled</button>
+          )}
           <button onClick={() => setSimulatedRole('player')} style={effectiveRole === 'player' ? styles.activeTab : styles.tab}>Hráč Pohled</button>
         </div>
       )}
@@ -253,7 +254,7 @@ export default function Home() {
               <form onSubmit={updateProfile}>
                 <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                <input style={styles.inputSmall} placeholder="Číslo hospodářství (např. CZ12345678)" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} />
                 <button type="submit" style={styles.btnSave}>Uložit profil</button>
                 <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px'}}>Zrušit</button>
@@ -293,7 +294,6 @@ export default function Home() {
                     <button type="submit" style={styles.btnSave}>Přidat</button>
                   </form>
 
-                  {/* NOVÁ TABULKA PRO SPRÁVU CENÍKU */}
                   <div style={{maxHeight: '300px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px'}}>
                     <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
                       <thead style={{position: 'sticky', top: 0, background: '#e0e0e0'}}>
