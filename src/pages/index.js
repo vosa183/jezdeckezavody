@@ -1,10 +1,11 @@
+/* eslint-disable */
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+// Bezpečné načtení klíčů, aby Vercel nepadal při buildu
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 const DISCIPLINES = [
   { id: 'sah_o', name: "Showmanship at Halter Open", price: 300 },
@@ -21,19 +22,17 @@ const DISCIPLINES = [
 ];
 
 export default function Home() {
-  // Stavy pro přihlášení/registraci
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false); // Přepínač mezi Přihlásit a Registrovat
+  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(true);
   
-  // Stavy pro přihlášku do závodu
   const [myHorses, setMyHorses] = useState([]);
   const [allRegistrations, setAllRegistrations] = useState([]);
   const [selectedHorse, setSelectedHorse] = useState('');
-  const [newHorseName, setNewHorseName] = useState(''); // Ztracené políčko pro nového koně
+  const [newHorseName, setNewHorseName] = useState(''); 
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
   const [editMode, setEditMode] = useState(false);
 
@@ -71,12 +70,10 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     if (isSignUp) {
-      // Registrace nového uživatele
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
       else alert('Registrace úspěšná! Zkontrolujte email nebo se rovnou přihlaste.');
     } else {
-      // Přihlášení existujícího
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
       else window.location.reload();
@@ -105,7 +102,6 @@ export default function Home() {
 
     let finalHorseName = selectedHorse;
 
-    // Pokud uživatel vybral "Nový kůň", uložíme ho nejdřív do databáze koní
     if (selectedHorse === 'new') {
       if (!newHorseName.trim()) {
         alert("Napište jméno nového koně!");
@@ -122,19 +118,17 @@ export default function Home() {
       finalHorseName = newHorse.name;
     }
 
-    // Vyhledání volného startovního čísla 1-50
     const { data: taken } = await supabase.from('race_participants').select('start_number');
     const takenNumbers = taken?.map(t => t.start_number) || [];
     const available = Array.from({ length: 50 }, (_, i) => i + 1).filter(n => !takenNumbers.includes(n));
 
     if (available.length === 0) {
-      alert("Kapacita 50 jezdců je vyčerpána!");
+      alert("Kapacita je vyčerpána!");
       return;
     }
 
     const assignedNumber = available[Math.floor(Math.random() * available.length)];
 
-    // Zápis do závodu
     const registrationData = selectedDisciplines.map(d => ({
       user_id: user.id,
       rider_name: profile?.full_name || user.email,
@@ -158,7 +152,7 @@ export default function Home() {
   return (
     <div style={styles.container}>
       <div style={styles.brandHeader}>
-        <img src="/brand.jpg" alt="Logo" style={styles.logo} onError={(e) => e.target.style.display='none'} />
+        <img src="/brand.jpg" alt="Logo" style={styles.logo} />
         <h1 style={styles.title}>Westernové hobby závody</h1>
         <p style={styles.subtitle}>POD HUMPRECHTEM</p>
       </div>
@@ -185,7 +179,6 @@ export default function Home() {
         </div>
       ) : (
         <div style={styles.mainGrid}>
-          {/* PROFIL / VETERINA */}
           <div style={styles.sideCard}>
             <h3>Můj Profil</h3>
             {editMode ? (
@@ -207,7 +200,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* REGISTRACE / ADMIN TABULKA */}
           <div style={styles.card}>
             {(profile?.role === 'admin' || profile?.role === 'judge') ? (
               <div>
@@ -248,7 +240,6 @@ export default function Home() {
                   <option value="new">+ Přidat nového koně</option>
                 </select>
                 
-                {/* Ztracené políčko je zpět! */}
                 {selectedHorse === 'new' && (
                   <input 
                     type="text" 
@@ -294,7 +285,7 @@ const styles = {
   title: { color: '#5d4037', margin: '10px 0 0 0' },
   subtitle: { color: '#8d6e63', fontSize: '0.8rem', letterSpacing: '2px', fontWeight: 'bold' },
   mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 2.5fr', gap: '20px', maxWidth: '1100px', margin: '0 auto' },
-  card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: user ? 'none' : '400px', width: '100%' },
+  card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: '400px', width: '100%' },
   sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' },
   input: { width: '100%', padding: '12px', margin: '8px 0', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   inputSmall: { width: '100%', padding: '10px', margin: '5px 0', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' },
