@@ -33,6 +33,10 @@ export default function Home() {
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
 
+  // Stavy pro Rozhodčího
+  const [judgeEvent, setJudgeEvent] = useState('');
+  const [judgeDiscipline, setJudgeDiscipline] = useState('');
+
   // Přepínač rolí
   const [simulatedRole, setSimulatedRole] = useState(null);
 
@@ -51,7 +55,7 @@ export default function Home() {
         const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', user.id);
         setMyHorses(horses || []);
 
-        const { data: evts } = await supabase.from('events').select('*').eq('is_active', true);
+        const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
         setEvents(evts || []);
 
         const { data: prices } = await supabase.from('pricing').select('*').order('id');
@@ -80,7 +84,6 @@ export default function Home() {
       if (error) {
         alert(error.message);
       } else if (data?.user) {
-        // Tady se rovnou zapíše e-mail do profilu v databázi
         await supabase.from('profiles').insert([{ id: data.user.id, email: email }]);
         alert('Registrace úspěšná! Můžete vstoupit.');
         window.location.reload();
@@ -97,7 +100,7 @@ export default function Home() {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
       full_name: profile.full_name,
-      email: profile.email || user.email, // Uložíme e-mail
+      email: profile.email || user.email,
       phone: profile.phone,
       stable: profile.stable,
       city: profile.city
@@ -113,6 +116,14 @@ export default function Home() {
     const { error } = await supabase.from('events').insert([{ name: newEventName, event_date: newEventDate }]);
     if (error) alert(error.message);
     else { alert('Závod vytvořen!'); window.location.reload(); }
+  };
+
+  const toggleEventLock = async (id, currentLocked) => {
+    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu?')) {
+      const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
+      if (error) alert(error.message);
+      else window.location.reload();
+    }
   };
 
   const handleCreatePricing = async (e) => {
@@ -212,6 +223,10 @@ export default function Home() {
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
 
+  // Filtrování pro Rozhodčího
+  const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
+  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
+
   return (
     <div style={styles.container}>
       {/* PŘEPÍNACÍ LIŠTA PRO ADMINA A SUPERADMINA */}
@@ -282,12 +297,38 @@ export default function Home() {
                 <h3 style={{marginTop: 0, borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Správa Závodů (Admin)</h3>
                 
                 <div style={styles.adminSection}>
-                  <h4 style={{margin: '0 0 10px 0'}}>1. Vypsat nový termín závodů</h4>
-                  <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  <h4 style={{margin: '0 0 10px 0'}}>1. Termíny závodů</h4>
+                  <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
                     <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
                     <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
-                    <button type="submit" style={styles.btnSave}>Přidat Závod</button>
+                    <button type="submit" style={styles.btnSave}>Vypsat závod</button>
                   </form>
+                  <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
+                    <thead>
+                      <tr style={{background: '#eee', textAlign: 'left'}}>
+                        <th style={{padding: '8px'}}>Název</th>
+                        <th style={{padding: '8px'}}>Datum</th>
+                        <th style={{padding: '8px'}}>Stav</th>
+                        <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {events.map(ev => (
+                        <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
+                          <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
+                          <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
+                          <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
+                            {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno pro přihlášky'}
+                          </td>
+                          <td style={{padding: '8px', textAlign: 'center'}}>
+                            <button onClick={() => toggleEventLock(ev.id, ev.is_locked)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
+                              {ev.is_locked ? 'Odemknout' : 'Uzamknout'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
 
                 <div style={styles.adminSection}>
@@ -366,8 +407,55 @@ export default function Home() {
             {/* POHLED: ROZHODČÍ */}
             {effectiveRole === 'judge' && (
               <div>
-                <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
-                <p>Zde se brzy objeví digitální scoresheety k hodnocení závodníků.</p>
+                <h3 style={{marginTop: 0, color: '#0277bd', borderBottom: '2px solid #0277bd', paddingBottom: '10px'}}>Rozhodčí panel - Startovní listiny</h3>
+                
+                <label style={styles.label}>Vyberte uzamčený závod k hodnocení:</label>
+                <select style={styles.input} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); setJudgeDiscipline(''); }}>
+                  <option value="">-- Zvolte závod --</option>
+                  {events.filter(ev => ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                </select>
+
+                {judgeEvent && (
+                  <div>
+                    <label style={styles.label}>Vyberte disciplínu:</label>
+                    <select style={styles.input} value={judgeDiscipline} onChange={e => setJudgeDiscipline(e.target.value)}>
+                      <option value="">-- Zvolte disciplínu --</option>
+                      {activeJudgeDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {judgeEvent && judgeDiscipline && (
+                  <div style={{marginTop: '20px'}}>
+                    <h4>Startovní pořadí: {judgeDiscipline}</h4>
+                    <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                      <thead>
+                        <tr style={{background: '#e1f5fe', textAlign: 'left'}}>
+                          <th style={{padding: '10px'}}>Draw</th>
+                          <th style={{padding: '10px'}}>Záda</th>
+                          <th style={{padding: '10px'}}>Jezdec</th>
+                          <th style={{padding: '10px'}}>Kůň</th>
+                          <th style={{padding: '10px', textAlign: 'center'}}>Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {judgeStartList.length > 0 ? judgeStartList.map(r => (
+                          <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
+                            <td style={{padding: '10px', fontWeight: 'bold', color: '#0277bd', fontSize: '1.1rem'}}>{r.draw_order}</td>
+                            <td style={{padding: '10px', fontWeight: 'bold'}}>{r.start_number}</td>
+                            <td style={{padding: '10px'}}>{r.rider_name}</td>
+                            <td style={{padding: '10px'}}>{r.horse_name}</td>
+                            <td style={{padding: '10px', textAlign: 'center'}}>
+                              <button onClick={() => alert('Zde se brzy otevře digitální tabulka pro tohoto jezdce.')} style={{...styles.btnSave, background: '#0277bd'}}>Hodnotit</button>
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr><td colSpan="5" style={{padding: '15px', textAlign: 'center'}}>Žádní přihlášení jezdci v této disciplíně.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
@@ -376,10 +464,10 @@ export default function Home() {
               <div>
                 <h3 style={{marginTop: 0}}>Nová přihláška k závodu</h3>
                 
-                <label style={styles.label}>1. Vyberte závod:</label>
+                <label style={styles.label}>1. Vyberte závod (Otevřené přihlášky):</label>
                 <select style={styles.input} value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
                   <option value="">-- Který závod pojedete? --</option>
-                  {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name} ({new Date(ev.event_date).toLocaleDateString()})</option>)}
+                  {events.filter(ev => !ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name} ({new Date(ev.event_date).toLocaleDateString()})</option>)}
                 </select>
 
                 <label style={styles.label}>2. Vyberte koně:</label>
