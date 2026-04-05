@@ -80,7 +80,8 @@ export default function Home() {
       if (error) {
         alert(error.message);
       } else if (data?.user) {
-        await supabase.from('profiles').insert([{ id: data.user.id }]);
+        // Tady se rovnou zapíše e-mail do profilu v databázi
+        await supabase.from('profiles').insert([{ id: data.user.id, email: email }]);
         alert('Registrace úspěšná! Můžete vstoupit.');
         window.location.reload();
       }
@@ -96,6 +97,7 @@ export default function Home() {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
       full_name: profile.full_name,
+      email: profile.email || user.email, // Uložíme e-mail
       phone: profile.phone,
       stable: profile.stable,
       city: profile.city
@@ -253,6 +255,7 @@ export default function Home() {
             {editMode ? (
               <form onSubmit={updateProfile}>
                 <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
+                <input style={styles.inputSmall} type="email" placeholder="Kontaktní e-mail" value={profile?.email || user?.email || ''} onChange={e => setProfile({...profile, email: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} />
                 <input style={styles.inputSmall} placeholder="Číslo hospodářství (např. CZ12345678)" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} />
@@ -262,6 +265,7 @@ export default function Home() {
             ) : (
               <div>
                 <p><strong>{profile?.full_name || 'Nevyplněné jméno'}</strong></p>
+                <p>E-mail: {profile?.email || user?.email}</p>
                 <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
                 <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
                 <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
