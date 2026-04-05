@@ -80,7 +80,6 @@ export default function Home() {
       if (error) {
         alert(error.message);
       } else if (data?.user) {
-        // Tady je ta oprava! Zapíšeme ho hned do tabulky profiles, abys ho viděl.
         await supabase.from('profiles').insert([{ id: data.user.id }]);
         alert('Registrace úspěšná! Můžete vstoupit.');
         window.location.reload();
@@ -121,9 +120,27 @@ export default function Home() {
     else { alert('Disciplína přidána do ceníku!'); window.location.reload(); }
   };
 
+  // Nové funkce pro úpravu a mazání ceníku
+  const handleEditPrice = async (id, oldPrice) => {
+    const newPrice = prompt("Zadejte novou cenu v Kč:", oldPrice);
+    if (newPrice !== null && newPrice !== "") {
+      const { error } = await supabase.from('pricing').update({ price: parseInt(newPrice) }).eq('id', id);
+      if (error) alert(error.message);
+      else window.location.reload();
+    }
+  };
+
+  const handleDeletePricing = async (id) => {
+    if (confirm("Opravdu chcete tuto disciplínu smazat z ceníku?")) {
+      const { error } = await supabase.from('pricing').delete().eq('id', id);
+      if (error) alert(error.message);
+      else window.location.reload();
+    }
+  };
+
   const updatePaymentNote = async (id, note) => {
     await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
-    alert('Poznámka uložena');
+    alert('Poznámka k platbě uložena!');
   };
 
   // HRÁČ FUNKCE
@@ -236,7 +253,7 @@ export default function Home() {
               <form onSubmit={updateProfile}>
                 <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                <input style={styles.inputSmall} placeholder="Číslo hospodářství (např. CZ12345678)" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} />
                 <button type="submit" style={styles.btnSave}>Uložit profil</button>
                 <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px'}}>Zrušit</button>
@@ -269,13 +286,37 @@ export default function Home() {
                 </div>
 
                 <div style={styles.adminSection}>
-                  <h4 style={{margin: '0 0 10px 0'}}>2. Přidat disciplínu do ceníku</h4>
-                  <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                    <input type="text" placeholder="Název disciplíny" value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
-                    <input type="number" placeholder="Cena v Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '100px'}} required/>
+                  <h4 style={{margin: '0 0 10px 0'}}>2. Ceník disciplín ({pricing.length})</h4>
+                  <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
+                    <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
+                    <input type="number" placeholder="Cena Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
                     <button type="submit" style={styles.btnSave}>Přidat</button>
                   </form>
-                  <p style={{fontSize: '0.8rem', color: '#666', marginTop: '5px'}}>Aktuálně v ceníku: {pricing.length} disciplín</p>
+
+                  {/* NOVÁ TABULKA PRO SPRÁVU CENÍKU */}
+                  <div style={{maxHeight: '300px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px'}}>
+                    <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
+                      <thead style={{position: 'sticky', top: 0, background: '#e0e0e0'}}>
+                        <tr style={{textAlign: 'left'}}>
+                          <th style={{padding: '10px'}}>Disciplína</th>
+                          <th style={{padding: '10px', width: '80px'}}>Cena</th>
+                          <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pricing.map(p => (
+                          <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
+                            <td style={{padding: '10px'}}>{p.discipline_name}</td>
+                            <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                            <td style={{padding: '10px', textAlign: 'center'}}>
+                              <button onClick={() => handleEditPrice(p.id, p.price)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>✎ Edit</button>
+                              <button onClick={() => handleDeletePricing(p.id)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>✖ Smazat</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 <div style={styles.adminSection}>
@@ -296,7 +337,7 @@ export default function Home() {
                         {allRegistrations.map((r, i) => (
                           <tr key={i} style={{borderBottom: '1px solid #eee'}}>
                             <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
-                            <td style={{padding: '8px', color: '#0277bd'}}><strong>{r.draw_order}</strong></td>
+                            <td style={{padding: '8px', color: '#0277bd'}}><strong>{r.draw_order || '-'}</strong></td>
                             <td style={{padding: '8px'}}>{r.rider_name}</td>
                             <td style={{padding: '8px'}}>{r.horse_name}</td>
                             <td style={{padding: '8px'}}>{r.discipline}</td>
