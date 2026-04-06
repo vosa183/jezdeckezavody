@@ -32,8 +32,10 @@ export default function Home() {
   // Stavy pro Admina
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
+  const [newEventCapacity, setNewEventCapacity] = useState('200'); // Přidána kapacita
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
+  const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); // Filtr startky
 
   // Stavy pro Rozhodčího
   const [judgeEvent, setJudgeEvent] = useState('');
@@ -76,8 +78,15 @@ export default function Home() {
         const { data: prices } = await supabase.from('pricing').select('*').order('id');
         setPricing(prices || []);
 
+        // Zde načítáme registraci podle role (hráč vidí jen své, admini všechny)
         if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge') {
           const { data: regs } = await supabase.from('race_participants').select('*');
+          setAllRegistrations(regs || []);
+
+          const { data: scores } = await supabase.from('scoresheets').select('*');
+          setScoresheets(scores || []);
+        } else {
+          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', user.id);
           setAllRegistrations(regs || []);
 
           const { data: scores } = await supabase.from('scoresheets').select('*');
@@ -117,7 +126,7 @@ export default function Home() {
       const { error, data } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
       else {
-        // Log přihlášení (uživatel už je v auth, ale zapíšeme to po reloadu nebo tiše)
+        // Log přihlášení
         await supabase.from('system_logs').insert([{ user_id: data.user.id, action: 'Přihlášení', details: { email } }]);
         window.location.reload();
       }
@@ -146,10 +155,10 @@ export default function Home() {
   // ADMIN FUNKCE
   const handleCreateEvent = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('events').insert([{ name: newEventName, event_date: newEventDate }]);
+    const { error } = await supabase.from('events').insert([{ name: newEventName, event_date: newEventDate, max_capacity: parseInt(newEventCapacity) }]);
     if (error) alert(error.message);
     else { 
-      await logSystemAction('Vypsán nový závod', { name: newEventName });
+      await logSystemAction('Vypsán nový závod', { name: newEventName, capacity: newEventCapacity });
       alert('Závod vytvořen!'); 
       window.location.reload(); 
     }
@@ -227,9 +236,12 @@ export default function Home() {
       finalHorseName = newHorse.name;
     }
 
+    const selectedEventObj = events.find(e => e.id === selectedEvent);
+    const maxCapacity = selectedEventObj?.max_capacity || 200;
+
     const { data: takenNumbers } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
     const taken = takenNumbers?.map(t => t.start_number) || [];
-    const available = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !taken.includes(n));
+    const available = Array.from({ length: maxCapacity }, (_, i) => i + 1).filter(n => !taken.includes(n));
 
     if (available.length === 0) {
       alert("Kapacita čísel je vyčerpána!");
@@ -245,7 +257,7 @@ export default function Home() {
         .eq('discipline', d.discipline_name);
         
       const takenDrawOrders = takenDraws?.map(t => t.draw_order) || [];
-      const availableDraws = Array.from({ length: 100 }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
+      const availableDraws = Array.from({ length: maxCapacity }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
       const assignedDraw = availableDraws[Math.floor(Math.random() * availableDraws.length)];
 
       return {
@@ -309,7 +321,7 @@ export default function Home() {
     const total = calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
     
-    // Smazat staré skóre pokud existuje, abychom zapsali nové (nebo update)
+    // Smazat staré skóre pokud existuje, abychom zapsali nové
     await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
 
     const { error } = await supabase.from('scoresheets').insert({
@@ -424,6 +436,7 @@ export default function Home() {
                   <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
                     <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
                     <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
+                    <input type="number" placeholder="Kapacita" value={newEventCapacity} onChange={e => setNewEventCapacity(e.target.value)} style={{...styles.inputSmall, width: '100px'}} title="Max. startovních čísel" required/>
                     <button type="submit" style={styles.btnSave}>Vypsat závod</button>
                   </form>
                   <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
@@ -431,6 +444,7 @@ export default function Home() {
                       <tr style={{background: '#eee', textAlign: 'left'}}>
                         <th style={{padding: '8px'}}>Název</th>
                         <th style={{padding: '8px'}}>Datum</th>
+                        <th style={{padding: '8px'}}>Kapacita</th>
                         <th style={{padding: '8px'}}>Stav</th>
                         <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
                       </tr>
@@ -440,8 +454,9 @@ export default function Home() {
                         <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
                           <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
                           <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
+                          <td style={{padding: '8px'}}>{ev.max_capacity || 200} čísel</td>
                           <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
-                            {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno pro přihlášky'}
+                            {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno'}
                           </td>
                           <td style={{padding: '8px', textAlign: 'center'}}>
                             <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
@@ -489,8 +504,16 @@ export default function Home() {
 
                 {/* TOTO SE TISKNE (STARTKY) */}
                 <div style={styles.adminSection}>
+                  <div className="no-print" style={{marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #ddd'}}>
+                    <label style={{...styles.label, marginTop: 0}}>Filtrovat startovní listinu podle závodu:</label>
+                    <select style={styles.inputSmall} value={adminSelectedEvent} onChange={e => setAdminSelectedEvent(e.target.value)}>
+                      <option value="">-- Zobrazit všechny závody --</option>
+                      {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                    </select>
+                  </div>
+
                   <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                    <h4 style={{margin: 0}}>Startovní listina - Přehled</h4>
+                    <h4 style={{margin: 0}}>Startovní listina {adminSelectedEvent ? `- ${events.find(e => e.id === adminSelectedEvent)?.name}` : '- Všechny události'}</h4>
                     <button className="no-print" onClick={() => window.print()} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
                   </div>
                   <div style={{overflowX: 'auto'}}>
@@ -506,7 +529,7 @@ export default function Home() {
                         </tr>
                       </thead>
                       <tbody>
-                        {allRegistrations.map((r, i) => (
+                        {(adminSelectedEvent ? allRegistrations.filter(r => r.event_id === adminSelectedEvent) : allRegistrations).map((r, i) => (
                           <tr key={i} style={{borderBottom: '1px solid #eee'}}>
                             <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
                             <td style={{padding: '8px'}}><strong>{r.draw_order || '-'}</strong></td>
@@ -719,6 +742,43 @@ export default function Home() {
                 </div>
 
                 <button onClick={handleRaceRegistration} style={styles.btnSecondary}>ODESLAT PŘIHLÁŠKU</button>
+
+                {/* TABULKA PŘIHLÁŠEK HRÁČE */}
+                {allRegistrations.filter(r => r.user_id === user?.id).length > 0 && (
+                  <div style={{marginTop: '40px'}}>
+                    <h3 style={{borderBottom: '2px solid #8d6e63', paddingBottom: '10px'}}>Moje přihlášky a výsledky</h3>
+                    <div style={{overflowX: 'auto'}}>
+                      <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse', marginTop: '10px'}}>
+                        <thead>
+                          <tr style={{background: '#eee', textAlign: 'left'}}>
+                            <th style={{padding: '8px'}}>Závod</th>
+                            <th style={{padding: '8px'}}>Kůň</th>
+                            <th style={{padding: '8px'}}>Disciplína</th>
+                            <th style={{padding: '8px'}}>Záda</th>
+                            <th style={{padding: '8px'}}>Skóre</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allRegistrations.filter(r => r.user_id === user?.id).map(r => {
+                            const eventName = events.find(e => e.id === r.event_id)?.name || 'Neznámý závod';
+                            const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                            return (
+                              <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
+                                <td style={{padding: '8px'}}>{eventName}</td>
+                                <td style={{padding: '8px'}}>{r.horse_name}</td>
+                                <td style={{padding: '8px'}}>{r.discipline}</td>
+                                <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
+                                <td style={{padding: '8px', fontWeight: 'bold', color: scoreObj ? '#2e7d32' : '#888'}}>
+                                  {scoreObj ? scoreObj.total_score : 'Čeká se na hodnocení'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
