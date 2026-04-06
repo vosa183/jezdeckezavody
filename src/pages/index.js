@@ -63,7 +63,7 @@ export default function Home() {
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
-  const [newStartNumTo, setNewStartNumTo] = useState('100'); 
+  const [newStartNumTo, setNewStartNumTo] = useState('50'); 
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
