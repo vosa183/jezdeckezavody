@@ -20,7 +20,7 @@ export default function Home() {
   const [events, setEvents] = useState([]);
   const [pricing, setPricing] = useState([]);
   const [scoresheets, setScoresheets] = useState([]);
-  const [systemLogs, setSystemLogs] = useState([]); // Nový stav pro logy
+  const [systemLogs, setSystemLogs] = useState([]); 
   
   // Stavy pro hráče
   const [selectedEvent, setSelectedEvent] = useState('');
@@ -32,10 +32,10 @@ export default function Home() {
   // Stavy pro Admina
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
-  const [newEventCapacity, setNewEventCapacity] = useState('200'); // Přidána kapacita
+  const [newEventCapacity, setNewEventCapacity] = useState('200'); 
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
-  const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); // Filtr startky
+  const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); // Filtr startky - Záložky
 
   // Stavy pro Rozhodčího
   const [judgeEvent, setJudgeEvent] = useState('');
@@ -44,8 +44,9 @@ export default function Home() {
   const [maneuverScores, setManeuverScores] = useState(Array(10).fill(0));
   const [penaltyScores, setPenaltyScores] = useState(Array(10).fill(0));
 
-  // Přepínač rolí
+  // Přepínač rolí a tisku
   const [simulatedRole, setSimulatedRole] = useState(null);
+  const [printMode, setPrintMode] = useState(''); // Řídí, co se zrovna tiskne
 
   useEffect(() => {
     checkUser();
@@ -78,7 +79,6 @@ export default function Home() {
         const { data: prices } = await supabase.from('pricing').select('*').order('id');
         setPricing(prices || []);
 
-        // Zde načítáme registraci podle role (hráč vidí jen své, admini všechny)
         if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge') {
           const { data: regs } = await supabase.from('race_participants').select('*');
           setAllRegistrations(regs || []);
@@ -93,7 +93,6 @@ export default function Home() {
           setScoresheets(scores || []);
         }
 
-        // Pokud je superadmin, načteme i špionážní logy
         if (prof?.role === 'superadmin') {
           const { data: logs } = await supabase.from('system_logs').select('*').order('created_at', { ascending: false }).limit(50);
           setSystemLogs(logs || []);
@@ -126,7 +125,6 @@ export default function Home() {
       const { error, data } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
       else {
-        // Log přihlášení
         await supabase.from('system_logs').insert([{ user_id: data.user.id, action: 'Přihlášení', details: { email } }]);
         window.location.reload();
       }
@@ -150,6 +148,14 @@ export default function Home() {
       alert('Profil uložen!'); 
       setEditMode(false); 
     }
+  };
+
+  const handlePrint = (mode) => {
+    setPrintMode(mode);
+    setTimeout(() => {
+      window.print();
+      setPrintMode('');
+    }, 500); // Krátká pauza, aby se React stihl překreslit pro tiskárnu
   };
 
   // ADMIN FUNKCE
@@ -287,7 +293,6 @@ export default function Home() {
   const openScoresheet = (participant) => {
     setEvaluatingParticipant(participant);
     
-    // Zkus najít existující skóre
     const existingScore = scoresheets.find(s => s.participant_id === participant.id);
     if (existingScore) {
       setManeuverScores(existingScore.score_data.maneuvers || Array(10).fill(0));
@@ -321,7 +326,6 @@ export default function Home() {
     const total = calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
     
-    // Smazat staré skóre pokud existuje, abychom zapsali nové
     await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
 
     const { error } = await supabase.from('scoresheets').insert({
@@ -344,8 +348,6 @@ export default function Home() {
   if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
-
-  // Filtrování pro Rozhodčího
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
   const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
 
@@ -357,10 +359,11 @@ export default function Home() {
           body { background: white !important; color: black !important; margin: 0; padding: 0; }
           .no-print { display: none !important; }
           .print-area { width: 100% !important; max-width: 100% !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
-          .print-border { border: 2px solid black !important; padding: 10px !important; }
+          .print-border { border: 2px solid black !important; padding: 15px !important; margin-bottom: 20px !important; border-radius: 0 !important; }
+          .page-break { page-break-after: always; }
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid black !important; padding: 8px !important; color: black !important; }
-          input, select { border: none !important; appearance: none !important; font-weight: bold; }
+          input, select { border: none !important; appearance: none !important; font-weight: bold; background: transparent !important; }
         }
       `}</style>
 
@@ -407,7 +410,7 @@ export default function Home() {
                 <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
                 <input style={styles.inputSmall} type="email" placeholder="Kontaktní e-mail" value={profile?.email || user?.email || ''} onChange={e => setProfile({...profile, email: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} />
-                <input style={styles.inputSmall} placeholder="Číslo hospodářství (např. CZ12345678)" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
                 <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} />
                 <button type="submit" style={styles.btnSave}>Uložit profil</button>
                 <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px'}}>Zrušit</button>
@@ -423,138 +426,207 @@ export default function Home() {
             )}
           </div>
 
-          {/* HLAVNÍ PANEL PODLE ROLE (Toto se bude tisknout) */}
+          {/* HLAVNÍ PANEL PODLE ROLE */}
           <div className="print-area" style={styles.card}>
             
             {/* POHLED: ADMIN / SUPERADMIN */}
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
-                <h3 className="no-print" style={{marginTop: 0, borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Správa Závodů (Admin)</h3>
+                <h3 className="no-print" style={{marginTop: 0, borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Hlavní nastavení</h3>
                 
-                <div className="no-print" style={styles.adminSection}>
-                  <h4 style={{margin: '0 0 10px 0'}}>1. Termíny závodů</h4>
-                  <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
-                    <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
-                    <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
-                    <input type="number" placeholder="Kapacita" value={newEventCapacity} onChange={e => setNewEventCapacity(e.target.value)} style={{...styles.inputSmall, width: '100px'}} title="Max. startovních čísel" required/>
-                    <button type="submit" style={styles.btnSave}>Vypsat závod</button>
-                  </form>
-                  <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
-                    <thead>
-                      <tr style={{background: '#eee', textAlign: 'left'}}>
-                        <th style={{padding: '8px'}}>Název</th>
-                        <th style={{padding: '8px'}}>Datum</th>
-                        <th style={{padding: '8px'}}>Kapacita</th>
-                        <th style={{padding: '8px'}}>Stav</th>
-                        <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {events.map(ev => (
-                        <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
-                          <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
-                          <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
-                          <td style={{padding: '8px'}}>{ev.max_capacity || 200} čísel</td>
-                          <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
-                            {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno'}
-                          </td>
-                          <td style={{padding: '8px', textAlign: 'center'}}>
-                            <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
-                              {ev.is_locked ? 'Odemknout' : 'Uzamknout'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="no-print" style={styles.adminSection}>
-                  <h4 style={{margin: '0 0 10px 0'}}>2. Ceník disciplín ({pricing.length})</h4>
-                  <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
-                    <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
-                    <input type="number" placeholder="Cena Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
-                    <button type="submit" style={styles.btnSave}>Přidat</button>
-                  </form>
-
-                  <div style={{maxHeight: '300px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px'}}>
+                {/* GLOBÁLNÍ NASTAVENÍ (Schová se při tisku čehokoliv ze záložek) */}
+                <div className="no-print">
+                  <div style={styles.adminSection}>
+                    <h4 style={{margin: '0 0 10px 0'}}>1. Termíny závodů</h4>
+                    <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
+                      <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
+                      <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
+                      <input type="number" placeholder="Kapacita" value={newEventCapacity} onChange={e => setNewEventCapacity(e.target.value)} style={{...styles.inputSmall, width: '100px'}} title="Max. startovních čísel" required/>
+                      <button type="submit" style={styles.btnSave}>Vypsat závod</button>
+                    </form>
                     <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
-                      <thead style={{position: 'sticky', top: 0, background: '#e0e0e0'}}>
-                        <tr style={{textAlign: 'left'}}>
-                          <th style={{padding: '10px'}}>Disciplína</th>
-                          <th style={{padding: '10px', width: '80px'}}>Cena</th>
-                          <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pricing.map(p => (
-                          <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
-                            <td style={{padding: '10px'}}>{p.discipline_name}</td>
-                            <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
-                            <td style={{padding: '10px', textAlign: 'center'}}>
-                              <button onClick={() => handleEditPrice(p.id, p.price, p.discipline_name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>✎ Edit</button>
-                              <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>✖ Smazat</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* TOTO SE TISKNE (STARTKY) */}
-                <div style={styles.adminSection}>
-                  <div className="no-print" style={{marginBottom: '15px', paddingBottom: '15px', borderBottom: '1px solid #ddd'}}>
-                    <label style={{...styles.label, marginTop: 0}}>Filtrovat startovní listinu podle závodu:</label>
-                    <select style={styles.inputSmall} value={adminSelectedEvent} onChange={e => setAdminSelectedEvent(e.target.value)}>
-                      <option value="">-- Zobrazit všechny závody --</option>
-                      {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
-                    </select>
-                  </div>
-
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                    <h4 style={{margin: 0}}>Startovní listina {adminSelectedEvent ? `- ${events.find(e => e.id === adminSelectedEvent)?.name}` : '- Všechny události'}</h4>
-                    <button className="no-print" onClick={() => window.print()} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
-                  </div>
-                  <div style={{overflowX: 'auto'}}>
-                    <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
                       <thead>
                         <tr style={{background: '#eee', textAlign: 'left'}}>
-                          <th style={{padding: '8px'}}>Záda</th>
-                          <th style={{padding: '8px'}}>Draw</th>
-                          <th style={{padding: '8px'}}>Jezdec</th>
-                          <th style={{padding: '8px'}}>Kůň</th>
-                          <th style={{padding: '8px'}}>Disciplína</th>
-                          <th className="no-print" style={{padding: '8px'}}>Poznámka k platbě</th>
+                          <th style={{padding: '8px'}}>Název</th>
+                          <th style={{padding: '8px'}}>Datum</th>
+                          <th style={{padding: '8px'}}>Kapacita</th>
+                          <th style={{padding: '8px'}}>Stav</th>
+                          <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {(adminSelectedEvent ? allRegistrations.filter(r => r.event_id === adminSelectedEvent) : allRegistrations).map((r, i) => (
-                          <tr key={i} style={{borderBottom: '1px solid #eee'}}>
-                            <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
-                            <td style={{padding: '8px'}}><strong>{r.draw_order || '-'}</strong></td>
-                            <td style={{padding: '8px'}}>{r.rider_name}</td>
-                            <td style={{padding: '8px'}}>{r.horse_name}</td>
-                            <td style={{padding: '8px'}}>{r.discipline}</td>
-                            <td className="no-print" style={{padding: '8px'}}>
-                              <input 
-                                type="text" 
-                                defaultValue={r.payment_note || ''} 
-                                onBlur={(e) => updatePaymentNote(r.id, e.target.value, r.rider_name)} 
-                                placeholder="např. Hotově"
-                                style={{padding: '5px', width: '100px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
-                              />
+                        {events.map(ev => (
+                          <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
+                            <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
+                            <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
+                            <td style={{padding: '8px'}}>{ev.max_capacity || 200} čísel</td>
+                            <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
+                              {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno'}
+                            </td>
+                            <td style={{padding: '8px', textAlign: 'center'}}>
+                              <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
+                                {ev.is_locked ? 'Odemknout' : 'Uzamknout'}
+                              </button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+
+                  <div style={styles.adminSection}>
+                    <h4 style={{margin: '0 0 10px 0'}}>2. Ceník disciplín ({pricing.length})</h4>
+                    <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
+                      <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
+                      <input type="number" placeholder="Cena Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
+                      <button type="submit" style={styles.btnSave}>Přidat</button>
+                    </form>
+
+                    <div style={{maxHeight: '300px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px'}}>
+                      <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
+                        <thead style={{position: 'sticky', top: 0, background: '#e0e0e0'}}>
+                          <tr style={{textAlign: 'left'}}>
+                            <th style={{padding: '10px'}}>Disciplína</th>
+                            <th style={{padding: '10px', width: '80px'}}>Cena</th>
+                            <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pricing.map(p => (
+                            <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
+                              <td style={{padding: '10px'}}>{p.discipline_name}</td>
+                              <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                              <td style={{padding: '10px', textAlign: 'center'}}>
+                                <button onClick={() => handleEditPrice(p.id, p.price, p.discipline_name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>✎ Edit</button>
+                                <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>✖ Smazat</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
+
+                {/* ZÁLOŽKY ZÁVODŮ PRO DETAILNÍ SPRÁVU */}
+                <div className="no-print" style={{marginTop: '30px', marginBottom: '15px'}}>
+                  <h3 style={{color: '#5d4037', borderBottom: '2px solid #5d4037', paddingBottom: '10px', margin: '0 0 15px 0'}}>Záložky závodů (Detail a tisk)</h3>
+                  <div style={{display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '10px'}}>
+                    <button onClick={() => setAdminSelectedEvent('')} style={!adminSelectedEvent ? styles.activeTab : styles.tab}>Skrýt detaily</button>
+                    {events.map(ev => (
+                      <button key={ev.id} onClick={() => setAdminSelectedEvent(ev.id)} style={adminSelectedEvent === ev.id ? styles.activeTab : styles.tab}>
+                        {ev.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* OBSAH VYBRANÉ ZÁLOŽKY ZÁVODU */}
+                {adminSelectedEvent && (
+                  <div className={printMode ? 'print-area' : ''}>
+                    
+                    {/* STARTKA PRO TENTO ZÁVOD */}
+                    <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 style={{margin: 0}}>Kompletní startovní listina ({events.find(e => e.id === adminSelectedEvent)?.name})</h4>
+                        <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
+                      </div>
+                      <div style={{overflowX: 'auto'}}>
+                        <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
+                          <thead>
+                            <tr style={{background: '#eee', textAlign: 'left'}}>
+                              <th style={{padding: '8px'}}>Záda</th>
+                              <th style={{padding: '8px'}}>Draw</th>
+                              <th style={{padding: '8px'}}>Jezdec</th>
+                              <th style={{padding: '8px'}}>Kůň</th>
+                              <th style={{padding: '8px'}}>Disciplína</th>
+                              <th className="no-print" style={{padding: '8px'}}>Poznámka k platbě</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allRegistrations.filter(r => r.event_id === adminSelectedEvent).map((r, i) => (
+                              <tr key={i} style={{borderBottom: '1px solid #eee'}}>
+                                <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
+                                <td style={{padding: '8px'}}><strong>{r.draw_order || '-'}</strong></td>
+                                <td style={{padding: '8px'}}>{r.rider_name}</td>
+                                <td style={{padding: '8px'}}>{r.horse_name}</td>
+                                <td style={{padding: '8px'}}>{r.discipline}</td>
+                                <td className="no-print" style={{padding: '8px'}}>
+                                  <input 
+                                    type="text" 
+                                    defaultValue={r.payment_note || ''} 
+                                    onBlur={(e) => updatePaymentNote(r.id, e.target.value, r.rider_name)} 
+                                    placeholder="např. Hotově"
+                                    style={{padding: '5px', width: '100px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* SCORESHEETY K TISKU PRO TENTO ZÁVOD */}
+                    <div className={printMode === 'startlist' ? 'no-print' : 'print-area'} style={styles.adminSection}>
+                      <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 style={{margin: 0}}>Hotové Scoresheety k tisku</h4>
+                        <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout všechny Scoresheety</button>
+                      </div>
+                      
+                      <div className="print-area">
+                        {allRegistrations.filter(r => r.event_id === adminSelectedEvent && scoresheets.some(s => s.participant_id === r.id)).length === 0 ? (
+                          <p className="no-print" style={{color: '#666'}}>Zatím nejsou k dispozici žádné ohodnocené výsledky pro tento závod.</p>
+                        ) : (
+                          allRegistrations.filter(r => r.event_id === adminSelectedEvent && scoresheets.some(s => s.participant_id === r.id)).map(r => {
+                            const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                            return (
+                              <div key={r.id} className="print-border page-break" style={{background: '#fff', padding: '20px', marginBottom: '20px', border: '1px solid #ddd', borderRadius: '8px'}}>
+                                <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                  <h2 style={{marginTop: 0, fontSize: '1.4rem'}}>{r.discipline}</h2>
+                                  <h2 style={{marginTop: 0, fontSize: '1.4rem'}}>Startovní číslo: {r.start_number}</h2>
+                                </div>
+                                <p style={{fontSize: '1.1rem', marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '10px'}}>
+                                  Jezdec: <strong>{r.rider_name}</strong> | Kůň: <strong>{r.horse_name}</strong>
+                                </p>
+                                
+                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px'}}>
+                                  <div>
+                                    <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Manévry (Skóre)</h4>
+                                    {scoreObj.score_data.maneuvers.map((score, index) => (
+                                      <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', borderBottom: '1px dashed #eee', paddingBottom: '4px'}}>
+                                        <span>Manévr {index + 1}</span>
+                                        <strong>{score > 0 ? `+${score}` : score}</strong>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div>
+                                    <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Penalizace (Trestné body)</h4>
+                                    {scoreObj.score_data.penalties.map((penalty, index) => (
+                                      <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', borderBottom: '1px dashed #eee', paddingBottom: '4px'}}>
+                                        <span>U manévru {index + 1}</span>
+                                        <strong>{penalty > 0 ? `-${penalty}` : '0'}</strong>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div style={{marginTop: '20px', padding: '10px', background: '#e1f5fe', textAlign: 'right', border: '2px solid black'}}>
+                                  <span style={{fontSize: '1.1rem', color: '#000'}}>Základ: 70 | </span>
+                                  <strong style={{fontSize: '1.3rem', color: '#000'}}>CELKOVÉ SKÓRE: {scoreObj.total_score}</strong>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* SUPERADMIN ŠPIONÁŽ (Skryto při tisku) */}
                 {effectiveRole === 'superadmin' && (
-                  <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0'}}>
+                  <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
                     <h4 style={{margin: '0 0 10px 0'}}>Logy systému (Špionáž)</h4>
                     <div style={{maxHeight: '300px', overflowY: 'auto', background: '#fff', padding: '10px'}}>
                       {systemLogs.length === 0 ? <p>Žádné záznamy.</p> : (
@@ -576,13 +648,13 @@ export default function Home() {
 
             {/* POHLED: ROZHODČÍ */}
             {effectiveRole === 'judge' && (
-              <div>
+              <div className="print-area">
                 <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '20px'}}>
                   <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel - Scoresheet</h3>
                 </div>
                 
                 {evaluatingParticipant ? (
-                  <div className="print-border" style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd'}}>
+                  <div className="print-border print-area" style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd'}}>
                     <div style={{display: 'flex', justifyContent: 'space-between'}}>
                       <h2 style={{marginTop: 0}}>{evaluatingParticipant.discipline}</h2>
                       <h2 style={{marginTop: 0}}>Startovní číslo: {evaluatingParticipant.start_number}</h2>
@@ -635,7 +707,7 @@ export default function Home() {
 
                     <div className="no-print" style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
                       <button onClick={saveScore} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.1rem'}}>Uložit hodnocení</button>
-                      <button onClick={() => window.print()} style={{...styles.btnOutline, flex: 1, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout hotový scoresheet</button>
+                      <button onClick={() => handlePrint('single_score')} style={{...styles.btnOutline, flex: 1, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout hotový scoresheet</button>
                       <button onClick={() => setEvaluatingParticipant(null)} style={{...styles.btnOutline, flex: 1, marginTop: 0}}>Zpět na listinu</button>
                     </div>
                   </div>
@@ -791,8 +863,8 @@ export default function Home() {
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif' },
   superAdminBar: { background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px', overflowX: 'auto' },
-  tab: { background: '#333', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' },
-  activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.85rem' },
+  tab: { background: '#333', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' },
+  activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.85rem', whiteSpace: 'nowrap' },
   brandHeader: { textAlign: 'center', marginBottom: '20px' },
   logo: { width: '120px', borderRadius: '50%', border: '4px solid #5d4037' },
   title: { color: '#5d4037', margin: '10px 0 0 0' },
