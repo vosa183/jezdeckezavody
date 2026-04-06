@@ -32,7 +32,8 @@ export default function Home() {
   // Stavy pro Admina
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
-  const [newEventCapacity, setNewEventCapacity] = useState('200'); 
+  const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
+  const [newStartNumTo, setNewStartNumTo] = useState('100'); 
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
@@ -161,10 +162,15 @@ export default function Home() {
   // ADMIN FUNKCE
   const handleCreateEvent = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('events').insert([{ name: newEventName, event_date: newEventDate, max_capacity: parseInt(newEventCapacity) }]);
+    const { error } = await supabase.from('events').insert([{ 
+      name: newEventName, 
+      event_date: newEventDate, 
+      start_num_from: parseInt(newStartNumFrom),
+      start_num_to: parseInt(newStartNumTo)
+    }]);
     if (error) alert(error.message);
     else { 
-      await logSystemAction('Vypsán nový závod', { name: newEventName, capacity: newEventCapacity });
+      await logSystemAction('Vypsán nový závod', { name: newEventName, from: newStartNumFrom, to: newStartNumTo });
       alert('Závod vytvořen!'); 
       window.location.reload(); 
     }
@@ -243,11 +249,13 @@ export default function Home() {
     }
 
     const selectedEventObj = events.find(e => e.id === selectedEvent);
-    const maxCapacity = selectedEventObj?.max_capacity || 200;
+    const fromNum = selectedEventObj?.start_num_from || 1;
+    const toNum = selectedEventObj?.start_num_to || 200;
+    const capacity = toNum - fromNum + 1;
 
     const { data: takenNumbers } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
     const taken = takenNumbers?.map(t => t.start_number) || [];
-    const available = Array.from({ length: maxCapacity }, (_, i) => i + 1).filter(n => !taken.includes(n));
+    const available = Array.from({ length: capacity }, (_, i) => i + fromNum).filter(n => !taken.includes(n));
 
     if (available.length === 0) {
       alert("Kapacita čísel pro tento závod je vyčerpána!");
@@ -263,7 +271,7 @@ export default function Home() {
         .eq('discipline', d.discipline_name);
         
       const takenDrawOrders = takenDraws?.map(t => t.draw_order) || [];
-      const availableDraws = Array.from({ length: maxCapacity }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
+      const availableDraws = Array.from({ length: capacity }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
       const assignedDraw = availableDraws[Math.floor(Math.random() * availableDraws.length)];
 
       return {
@@ -290,7 +298,7 @@ export default function Home() {
   };
 
   const handleCancelRegistration = async (id) => {
-    if (confirm("Opravdu chcete zrušit tuto přihlášku?")) {
+    if (confirm("Opravdu chcete zrušit tuto přihlášku? Startovní číslo se uvolní pro ostatní.")) {
       const { error } = await supabase.from('race_participants').delete().eq('id', id);
       if (error) alert(error.message);
       else {
@@ -415,7 +423,7 @@ export default function Home() {
         </div>
       ) : (
         <div style={styles.mainGrid}>
-          {/* LEVÝ PANEL - PROFIL (Při tisku se schová) */}
+          {/* LEVÝ PANEL - PROFIL */}
           <div className="no-print" style={styles.sideCard}>
             <h3>Můj Profil</h3>
             {editMode ? (
@@ -439,7 +447,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* HLAVNÍ PANEL PODLE ROLE (Toto se bude tisknout) */}
+          {/* HLAVNÍ PANEL PODLE ROLE */}
           <div className="print-area" style={styles.card}>
             
             {/* POHLED: ADMIN / SUPERADMIN */}
@@ -447,14 +455,19 @@ export default function Home() {
               <div>
                 <h3 className="no-print" style={{marginTop: 0, borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Hlavní nastavení</h3>
                 
-                {/* GLOBÁLNÍ NASTAVENÍ (Schová se při tisku čehokoliv ze záložek) */}
+                {/* GLOBÁLNÍ NASTAVENÍ */}
                 <div className="no-print">
                   <div style={styles.adminSection}>
                     <h4 style={{margin: '0 0 10px 0'}}>1. Termíny závodů</h4>
                     <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
-                      <input type="text" placeholder="Název (např. Jarní závody)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '200px'}} required/>
+                      <input type="text" placeholder="Název" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
                       <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
-                      <input type="number" placeholder="Kapacita" value={newEventCapacity} onChange={e => setNewEventCapacity(e.target.value)} style={{...styles.inputSmall, width: '100px'}} title="Max. startovních čísel" required/>
+                      <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+                        <span>Čísla od:</span>
+                        <input type="number" value={newStartNumFrom} onChange={e => setNewStartNumFrom(e.target.value)} style={{...styles.inputSmall, width: '70px'}} required/>
+                        <span>do:</span>
+                        <input type="number" value={newStartNumTo} onChange={e => setNewStartNumTo(e.target.value)} style={{...styles.inputSmall, width: '70px'}} required/>
+                      </div>
                       <button type="submit" style={styles.btnSave}>Vypsat závod</button>
                     </form>
                     <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
@@ -462,7 +475,7 @@ export default function Home() {
                         <tr style={{background: '#eee', textAlign: 'left'}}>
                           <th style={{padding: '8px'}}>Název</th>
                           <th style={{padding: '8px'}}>Datum</th>
-                          <th style={{padding: '8px'}}>Kapacita</th>
+                          <th style={{padding: '8px'}}>Rozsah čísel</th>
                           <th style={{padding: '8px'}}>Stav</th>
                           <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
                         </tr>
@@ -472,7 +485,7 @@ export default function Home() {
                           <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
                             <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
                             <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
-                            <td style={{padding: '8px'}}>{ev.max_capacity || 200} čísel</td>
+                            <td style={{padding: '8px'}}>{ev.start_num_from || 1} - {ev.start_num_to || 200}</td>
                             <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
                               {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno'}
                             </td>
@@ -538,11 +551,10 @@ export default function Home() {
                 {adminSelectedEvent && (
                   <div className={printMode ? 'print-area' : ''}>
                     
-                    {/* STARTKA PRO TENTO ZÁVOD */}
+                    {/* STARTKA */}
                     <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                         <h4 className="no-print" style={{margin: 0}}>Kompletní startovní listina</h4>
-                        {/* Hlavička speciálně pro tisk */}
                         <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
                         <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
                       </div>
@@ -582,7 +594,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* SCORESHEETY K TISKU PRO TENTO ZÁVOD */}
+                    {/* SCORESHEETY */}
                     <div className={printMode === 'startlist' ? 'no-print' : 'print-area'} style={styles.adminSection}>
                       <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                         <h4 style={{margin: 0}}>Hotové Scoresheety k tisku</h4>
@@ -639,7 +651,7 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* SUPERADMIN ŠPIONÁŽ (Skryto při tisku) */}
+                {/* SUPERADMIN ŠPIONÁŽ */}
                 {effectiveRole === 'superadmin' && (
                   <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
                     <h4 style={{margin: '0 0 10px 0'}}>Logy systému (Špionáž)</h4>
