@@ -762,7 +762,7 @@ export default function Home() {
             <div>
               <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
                 <li style={{marginBottom: '10px'}}><strong>Pořadatel:</strong> JK Sobotka – Pavla Koklesová</li>
-                <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> 2. 5. 2026</li>
+                <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> Uveden v názvu závodu</li>
                 <li style={{marginBottom: '10px'}}><strong>Rozhodčí:</strong> Pavla Doubravová</li>
                 <li style={{marginBottom: '10px'}}><strong>Ředitel akce:</strong> Pavla Koklesová</li>
                 <li style={{marginBottom: '10px'}}><strong>Sekretář závodů:</strong> Leona Plocková (plockovaleona@seznam.cz)</li>
@@ -772,7 +772,7 @@ export default function Home() {
               <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
                 <li style={{marginBottom: '10px'}}><strong>Místo konání:</strong> Sobotka – kolbiště a jízdárna pod Humprechtem<br/>(Adresa: Pod Humprechtem 507 43)</li>
                 <li style={{marginBottom: '10px'}}><strong>Zdravotní služba:</strong> Červený kříž</li>
-                <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 1. 5. 2026</li>
+                <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 36h. před zahajením</li>
                 <li style={{marginBottom: '10px'}}><strong>Kontakty:</strong> 721 456 049, 702 165 991</li>
               </ul>
             </div>
