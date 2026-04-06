@@ -198,6 +198,23 @@ export default function Home() {
     }, 500); 
   };
 
+  // KOMUNIKÁTOR PRO SPÍKRA A TELEGRAM
+  const handleUpdateSpeakerMessage = async (eventId, currentMessage) => {
+    const msg = prompt("Zadejte zprávu pro hlasatele (a na Telegram) (např. 'Pauza 15 minut'). Smazáním textu zprávu zrušíte:", currentMessage || "");
+    if (msg !== null) {
+      const { error } = await supabase.from('events').update({ speaker_message: msg }).eq('id', eventId);
+      if (error) alert(error.message);
+      else {
+        await logSystemAction('Změna zprávy pro Spíkra', { msg });
+        if (msg.trim() !== '') {
+          // Odeslání oznámení na Telegram
+          await sendTelegramMessage(`📢 <b>UPOZORNĚNÍ OD POŘADATELE:</b>\n\n${msg}`);
+        }
+        checkUser(); // Obnovíme data, aby se to hned projevilo
+      }
+    }
+  };
+
   // ADMIN FUNKCE
   const handleCreateEvent = async (e) => {
     e.preventDefault();
@@ -650,6 +667,15 @@ export default function Home() {
                 {adminSelectedEvent && (
                   <div className={printMode ? 'print-area' : ''}>
                     
+                    {/* PANEL PRO ZPRÁVY SPÍKROVI */}
+                    <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                      <div>
+                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra a Telegram:</strong>
+                        <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                      </div>
+                      <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit / Smazat vzkaz</button>
+                    </div>
+
                     {/* PLÁN ZÁVODŮ PRO SPÍKRA */}
                     <div className="no-print" style={{marginBottom: '20px', background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                       <div>
@@ -785,6 +811,17 @@ export default function Home() {
                 <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '20px'}}>
                   <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel - Scoresheet</h3>
                 </div>
+
+                {/* ZPRÁVY PRO SPÍKRA (I ROZHODČÍ MŮŽE PSÁT SPÍKROVI) */}
+                {judgeEvent && !evaluatingParticipant && (
+                  <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                    <div>
+                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra a Telegram:</strong>
+                      <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                    </div>
+                    <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit / Smazat vzkaz</button>
+                  </div>
+                )}
                 
                 {evaluatingParticipant ? (
                   <div className="print-border print-area" style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd'}}>
@@ -927,6 +964,16 @@ export default function Home() {
                       <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
                       <span style={{fontSize: '1.2rem'}}>{lockedEvent?.schedule || 'Plán nebyl pořadatelem zadán'}</span>
                     </div>
+
+                    {/* BANNER SE ZPRÁVOU PRO SPÍKRA (LIVE) */}
+                    {lockedEvent?.speaker_message && (
+                      <div style={{background: '#ffe0b2', border: '4px solid #e65100', padding: '20px', borderRadius: '12px', marginTop: '10px', marginBottom: '30px', textAlign: 'center'}}>
+                        <h3 style={{margin: '0 0 10px 0', color: '#e65100', textTransform: 'uppercase', letterSpacing: '2px'}}>🚨 Zpráva od pořadatele / rozhodčího:</h3>
+                        <p style={{fontSize: '2rem', fontWeight: 'bold', margin: 0, color: '#e65100'}}>
+                          {lockedEvent?.speaker_message}
+                        </p>
+                      </div>
+                    )}
 
                     {!speakerDiscipline ? (
                       <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
