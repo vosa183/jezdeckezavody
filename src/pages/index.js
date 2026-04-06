@@ -6,6 +6,27 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+// TELEGRAM NASTAVENÍ
+const TELEGRAM_BOT_TOKEN = '8105813575:AAGk9YXZJQtRrS_73gKg-ApYn98gjG8BH1w';
+const TELEGRAM_CHAT_ID = '-1003892130465';
+
+const sendTelegramMessage = async (text) => {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text: text,
+        parse_mode: 'HTML' // Umožní nám používat tučné písmo a kurzívu
+      })
+    });
+  } catch (err) {
+    console.error('Chyba při odesílání na Telegram:', err);
+  }
+};
+
 export default function Home() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -177,14 +198,18 @@ export default function Home() {
     }, 500); 
   };
 
-  // ZPRÁVA PRO SPÍKRA
+  // ZPRÁVA PRO SPÍKRA (A TELEGRAM)
   const handleUpdateSpeakerMessage = async (eventId, currentMessage) => {
-    const msg = prompt("Zadejte zprávu pro hlasatele (např. 'Pauza 15 minut', 'Následuje Trail'). Smazáním textu zprávu zrušíte:", currentMessage || "");
+    const msg = prompt("Zadejte zprávu pro hlasatele a jezdce na Telegramu (např. 'Pauza 15 minut', 'Následuje Trail'). Smazáním textu zprávu zrušíte:", currentMessage || "");
     if (msg !== null) {
       const { error } = await supabase.from('events').update({ speaker_message: msg }).eq('id', eventId);
       if (error) alert(error.message);
       else {
         await logSystemAction('Změna zprávy pro Spíkra', { msg });
+        if (msg.trim() !== '') {
+          // Odeslání oznámení na Telegram
+          await sendTelegramMessage(`📢 <b>UPOZORNĚNÍ OD POŘADATELE:</b>\n\n${msg}`);
+        }
       }
     }
   };
@@ -201,7 +226,15 @@ export default function Home() {
     if (error) alert(error.message);
     else { 
       await logSystemAction('Vypsán nový závod', { name: newEventName, from: newStartNumFrom, to: newStartNumTo });
-      alert('Závod vytvořen!'); 
+      
+      // Odeslání pozvánky na Telegram
+      const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n` +
+                    `🏆 <b>Název:</b> ${newEventName}\n` +
+                    `📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\n` +
+                    `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
+      await sendTelegramMessage(tgMsg);
+
+      alert('Závod vytvořen a oznámení bylo odesláno na Telegram!'); 
       window.location.reload(); 
     }
   };
@@ -389,9 +422,23 @@ export default function Home() {
       alert('Chyba při ukládání: ' + error.message);
     } else {
       await logSystemAction('Uloženo hodnocení (Scoresheet)', { rider: evaluatingParticipant.rider_name, total });
-      alert('Hodnocení bylo úspěšně uloženo!');
+      
+      // Odeslání výsledku na Telegram
+      const mTotal = maneuverScores.reduce((a, b) => a + b, 0);
+      const pTotal = penaltyScores.reduce((a, b) => a + b, 0);
+      
+      const tgMsg = `🏆 <b>NOVÝ VÝSLEDEK V ARÉNĚ!</b>\n\n` +
+                    `🎯 <b>Disciplína:</b> ${evaluatingParticipant.discipline}\n` +
+                    `🤠 <b>Jezdec:</b> ${evaluatingParticipant.rider_name}\n` +
+                    `🐴 <b>Kůň:</b> ${evaluatingParticipant.horse_name} (Č. ${evaluatingParticipant.start_number})\n\n` +
+                    `✨ <b>CELKOVÉ SKÓRE: ${total}</b>\n` +
+                    `<i>(Základ: 70 | Manévry: ${mTotal > 0 ? '+'+mTotal : mTotal} | Penalty: -${pTotal})</i>`;
+                    
+      await sendTelegramMessage(tgMsg);
+
+      alert('Hodnocení uloženo a odesláno na Telegram!');
       setEvaluatingParticipant(null);
-      // Záměrně bez window.location.reload() -> o aktualizaci se postará LIVE interval na pozadí!
+      checkUser(); // Záměrně bez reloadu, ať se nemusí načítat celá stránka
     }
   };
 
@@ -479,7 +526,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* HLAVNÍ PANEL PODLE ROLE */}
+          {/* HLAVNÍ PANEL PODLE ROLE (Toto se bude tisknout) */}
           <div className="print-area" style={styles.card}>
             
             {/* POHLED: ADMIN / SUPERADMIN */}
@@ -586,8 +633,8 @@ export default function Home() {
                     {/* PANEL PRO ZPRÁVY SPÍKROVI */}
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                       <div>
-                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra:</strong>
-                        <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva (Banner je u Spíkra skrytý)'}</span>
+                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra a Telegram:</strong>
+                        <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva'}</span>
                       </div>
                       <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit / Smazat vzkaz</button>
                     </div>
@@ -725,7 +772,7 @@ export default function Home() {
                 {judgeEvent && !evaluatingParticipant && (
                   <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                     <div>
-                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra:</strong>
+                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>📢 Aktuální vzkaz pro Spíkra a Telegram:</strong>
                       <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
                     </div>
                     <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit / Smazat vzkaz</button>
