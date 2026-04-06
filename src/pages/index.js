@@ -76,8 +76,20 @@ const getRulesForDiscipline = (disciplineName) => {
   return disciplineRuleHints.default;
 };
 
+// POMOCNÉ FUNKCE PRO DETEKCI KATEGORIÍ
+const isKidsDiscipline = (discName) => {
+  return /děti|deti|mládež|mladez|rooki|advanc/i.test(discName);
+};
+const isFoalDiscipline = (discName) => {
+  return /hříb|hrib/i.test(discName);
+};
+const isAdultDiscipline = (discName) => {
+  // Pokud to není vyloženě dětské a nejsou to hříbata, bereme to jako dospělou (Open, bez přívlastku atd.)
+  return !isKidsDiscipline(discName) && !isFoalDiscipline(discName);
+};
+
 export default function Home() {
-  const [currentTab, setCurrentTab] = useState('app'); // 'app' nebo 'rules'
+  const [currentTab, setCurrentTab] = useState('app'); 
   
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -318,7 +330,7 @@ export default function Home() {
   };
 
   const handleEditPrice = async (id, oldPrice, discName) => {
-    const newPrice = prompt(`Zadejte novou cenu pro ${discName}:`, oldPrice);
+    const newPrice = prompt(`Zadejte novou cenu v Kč pro ${discName}:`, oldPrice);
     if (newPrice !== null && newPrice !== "") {
       const { error } = await supabase.from('pricing').update({ price: parseInt(newPrice) }).eq('id', id);
       if (error) alert(error.message);
@@ -406,9 +418,19 @@ export default function Home() {
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
+  // POMOCNÉ STAVY PRO FORMULÁŘ (BLBUVZDORNOST)
+  const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
+  const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
+  const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
+
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
+      return;
+    }
+
+    if (mixWarning) {
+      alert("NELZE KOMBINOVAT! Z bezpečnostních důvodů nelze v jedné přihlášce kombinovat dětské a dospělé disciplíny. Prosím, odešlete je zvlášť.");
       return;
     }
 
@@ -417,20 +439,12 @@ export default function Home() {
       return;
     }
 
-    const hasKidsDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().match(/děti|mládež|hříbata/));
-    const hasOpenDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().includes('open'));
-
-    if (hasKidsDisc && hasOpenDisc) {
-      alert("POZOR! Nemůžete v jedné přihlášce kombinovat dětské a dospělé (Open) disciplíny. Pokud přihlašujete sebe i dítě, prosím rozdělte to do dvou samostatných odeslání.");
-      return;
-    }
-
-    if (hasKidsDisc && !customRiderName.trim()) {
+    if (uiHasKidsDisc && !customRiderName.trim()) {
       alert("Vyberte prosím juniorskou kategorii, proto nezapomeňte do modrého rámečku zapsat jméno dítěte, které závod pojede.");
       return;
     }
 
-    const finalRiderName = hasKidsDisc ? customRiderName.trim() : profile.full_name;
+    const finalRiderName = uiHasKidsDisc ? customRiderName.trim() : profile.full_name.trim();
 
     let finalHorseName = selectedHorse;
     if (selectedHorse === 'new') {
@@ -439,7 +453,7 @@ export default function Home() {
         return;
       }
       const { data: newHorse, error: horseErr } = await supabase.from('horses')
-        .insert([{ owner_id: user.id, name: newHorseName }])
+        .insert([{ owner_id: user.id, name: newHorseName.trim() }])
         .select().single();
       if (horseErr) return alert("Chyba při ukládání koně: " + horseErr.message);
       finalHorseName = newHorse.name;
@@ -450,16 +464,29 @@ export default function Home() {
     const toNum = selectedEventObj?.start_num_to || 200;
     const capacity = toNum - fromNum + 1;
 
-    const { data: takenNumbers } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
-    const taken = takenNumbers?.map(t => t.start_number) || [];
-    const available = Array.from({ length: capacity }, (_, i) => i + fromNum).filter(n => !taken.includes(n));
+    // SYSTÉM PRO ZNOVUPOUŽITÍ STARTOVNÍHO ČÍSLA (DB PULL)
+    const { data: freshRegs } = await supabase.from('race_participants')
+        .select('start_number, rider_name, horse_name')
+        .eq('event_id', selectedEvent);
+    
+    const existingMatch = freshRegs?.find(r => 
+        r.rider_name?.trim().toLowerCase() === finalRiderName.toLowerCase() &&
+        r.horse_name?.trim().toLowerCase() === finalHorseName.toLowerCase()
+    );
 
-    if (available.length === 0) {
-      alert("Kapacita čísel pro tento závod je vyčerpána!");
-      return;
+    let assignedNumber;
+    if (existingMatch) {
+      assignedNumber = existingMatch.start_number; 
+    } else {
+      const takenNumbers = freshRegs?.map(t => t.start_number) || [];
+      const available = Array.from({ length: capacity }, (_, i) => i + fromNum).filter(n => !takenNumbers.includes(n));
+
+      if (available.length === 0) {
+        alert("Kapacita čísel pro tento závod je vyčerpána!");
+        return;
+      }
+      assignedNumber = available[Math.floor(Math.random() * available.length)];
     }
-
-    const assignedNumber = available[Math.floor(Math.random() * available.length)];
 
     const registrationData = await Promise.all(selectedDisciplines.map(async (d) => {
       const { data: takenDraws } = await supabase.from('race_participants')
@@ -609,7 +636,7 @@ export default function Home() {
                   <h3 style={{ margin: '5px 0 0 0', color: '#444' }}>SCORESHEET: {discipline}</h3>
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
                     <strong style={{fontSize: '1.1rem'}}>Úloha (Pattern):</strong>
-                    <input type="text" className="print-input" placeholder="Zadejte název úlohy (např. Pattern #2)" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent' }} />
+                    <input type="text" className="print-input" placeholder="Zadejte název úlohy" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent', textAlign: 'center' }} />
                   </div>
                 </div>
                 
@@ -718,10 +745,7 @@ export default function Home() {
 
   const currentRules = getRulesForDiscipline(judgeDiscipline);
 
-  const hasKidsDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().match(/děti|mládež|hříbata/));
-  const hasOpenDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().includes('open'));
-
-  // GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ)
+  // GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ PRO VŠECHNY)
   if (currentTab === 'rules') {
     return (
       <div style={styles.container}>
@@ -1412,16 +1436,16 @@ export default function Home() {
                       </div>
                     )}
 
-                    {hasKidsDisc && (
+                    {uiHasKidsDisc && (
                       <div style={{background: '#e3f2fd', padding: '15px', borderRadius: '6px', border: '1px solid #0288d1', marginTop: '15px'}}>
                         <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Jméno závodícího dítěte / mládežníka:</label>
                         <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}} placeholder="Zadejte jméno dítěte" />
                       </div>
                     )}
 
-                    {hasKidsDisc && hasOpenDisc && (
+                    {mixWarning && (
                       <div style={{background: '#ffebee', padding: '15px', borderRadius: '6px', border: '2px solid #d32f2f', color: '#d32f2f', fontWeight: 'bold', marginTop: '15px'}}>
-                        ⚠️ Nelze kombinovat dětské a dospělé (Open) disciplíny v jedné přihlášce! Pokud přihlašujete sebe do Open a dítě do Mládeže, musíte odeslat dvě samostatné přihlášky.
+                        ⚠️ NELZE KOMBINOVAT! Nelze v jedné přihlášce míchat dětské a dospělé (např. Open) disciplíny. Pokud přihlašujete více dětí nebo sebe a dítě, musíte podat přihlášku za každého závodníka samostatně.
                       </div>
                     )}
                     
@@ -1431,8 +1455,8 @@ export default function Home() {
 
                     <button 
                       onClick={handleRaceRegistration} 
-                      style={{...styles.btnSecondary, background: (hasKidsDisc && hasOpenDisc) ? '#ccc' : '#8d6e63', cursor: (hasKidsDisc && hasOpenDisc) ? 'not-allowed' : 'pointer'}}
-                      disabled={hasKidsDisc && hasOpenDisc}
+                      style={{...styles.btnSecondary, background: mixWarning ? '#ccc' : '#8d6e63', cursor: mixWarning ? 'not-allowed' : 'pointer'}}
+                      disabled={mixWarning}
                     >
                       ODESLAT PŘIHLÁŠKU
                     </button>
