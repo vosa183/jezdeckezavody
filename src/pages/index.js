@@ -35,7 +35,7 @@ export default function Home() {
   const [newEventCapacity, setNewEventCapacity] = useState('200'); 
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
-  const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); // Filtr startky - Záložky
+  const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
 
   // Stavy pro Rozhodčího
   const [judgeEvent, setJudgeEvent] = useState('');
@@ -46,7 +46,7 @@ export default function Home() {
 
   // Přepínač rolí a tisku
   const [simulatedRole, setSimulatedRole] = useState(null);
-  const [printMode, setPrintMode] = useState(''); // Řídí, co se zrovna tiskne
+  const [printMode, setPrintMode] = useState(''); 
 
   useEffect(() => {
     checkUser();
@@ -155,7 +155,7 @@ export default function Home() {
     setTimeout(() => {
       window.print();
       setPrintMode('');
-    }, 500); // Krátká pauza, aby se React stihl překreslit pro tiskárnu
+    }, 500); 
   };
 
   // ADMIN FUNKCE
@@ -250,7 +250,7 @@ export default function Home() {
     const available = Array.from({ length: maxCapacity }, (_, i) => i + 1).filter(n => !taken.includes(n));
 
     if (available.length === 0) {
-      alert("Kapacita čísel je vyčerpána!");
+      alert("Kapacita čísel pro tento závod je vyčerpána!");
       return;
     }
 
@@ -286,6 +286,18 @@ export default function Home() {
       await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
       alert(`Přihláška odeslána! Vaše startovní číslo na záda je: ${assignedNumber}. Pořadí do arény najdete u pořadatele.`);
       window.location.reload();
+    }
+  };
+
+  const handleCancelRegistration = async (id) => {
+    if (confirm("Opravdu chcete zrušit tuto přihlášku?")) {
+      const { error } = await supabase.from('race_participants').delete().eq('id', id);
+      if (error) alert(error.message);
+      else {
+        await logSystemAction('Hráč zrušil přihlášku', { registration_id: id });
+        alert('Přihláška byla zrušena.');
+        window.location.reload();
+      }
     }
   };
 
@@ -353,16 +365,17 @@ export default function Home() {
 
   return (
     <div style={styles.container}>
-      {/* Vložené CSS pro skrytí prvků při tisku */}
+      {/* Vložené CSS pro skrytí prvků při tisku a správné roztáhnutí tabulky */}
       <style>{`
         @media print {
-          body { background: white !important; color: black !important; margin: 0; padding: 0; }
+          body { background: white !important; color: black !important; margin: 0; padding: 0; font-size: 12pt; }
           .no-print { display: none !important; }
           .print-area { width: 100% !important; max-width: 100% !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
-          .print-border { border: 2px solid black !important; padding: 15px !important; margin-bottom: 20px !important; border-radius: 0 !important; }
+          .print-border { border: 2px solid black !important; padding: 15px !important; margin-bottom: 20px !important; border-radius: 0 !important; page-break-inside: avoid; }
           .page-break { page-break-after: always; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid black !important; padding: 8px !important; color: black !important; }
+          table { width: 100% !important; border-collapse: collapse; table-layout: auto; margin-top: 10px; }
+          th, td { border: 1px solid black !important; padding: 8px !important; color: black !important; text-align: left; }
+          th { background-color: #f0f0f0 !important; -webkit-print-color-adjust: exact; }
           input, select { border: none !important; appearance: none !important; font-weight: bold; background: transparent !important; }
         }
       `}</style>
@@ -426,7 +439,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* HLAVNÍ PANEL PODLE ROLE */}
+          {/* HLAVNÍ PANEL PODLE ROLE (Toto se bude tisknout) */}
           <div className="print-area" style={styles.card}>
             
             {/* POHLED: ADMIN / SUPERADMIN */}
@@ -528,15 +541,17 @@ export default function Home() {
                     {/* STARTKA PRO TENTO ZÁVOD */}
                     <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                        <h4 style={{margin: 0}}>Kompletní startovní listina ({events.find(e => e.id === adminSelectedEvent)?.name})</h4>
+                        <h4 className="no-print" style={{margin: 0}}>Kompletní startovní listina</h4>
+                        {/* Hlavička speciálně pro tisk */}
+                        <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
                         <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
                       </div>
                       <div style={{overflowX: 'auto'}}>
                         <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
                           <thead>
                             <tr style={{background: '#eee', textAlign: 'left'}}>
-                              <th style={{padding: '8px'}}>Záda</th>
-                              <th style={{padding: '8px'}}>Draw</th>
+                              <th style={{padding: '8px', width: '60px'}}>Záda</th>
+                              <th style={{padding: '8px', width: '60px'}}>Draw</th>
                               <th style={{padding: '8px'}}>Jezdec</th>
                               <th style={{padding: '8px'}}>Kůň</th>
                               <th style={{padding: '8px'}}>Disciplína</th>
@@ -828,12 +843,16 @@ export default function Home() {
                             <th style={{padding: '8px'}}>Disciplína</th>
                             <th style={{padding: '8px'}}>Záda</th>
                             <th style={{padding: '8px'}}>Skóre</th>
+                            <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
                           </tr>
                         </thead>
                         <tbody>
                           {allRegistrations.filter(r => r.user_id === user?.id).map(r => {
-                            const eventName = events.find(e => e.id === r.event_id)?.name || 'Neznámý závod';
+                            const eventObj = events.find(e => e.id === r.event_id);
+                            const eventName = eventObj?.name || 'Neznámý závod';
+                            const isEventLocked = eventObj?.is_locked || false;
                             const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                            
                             return (
                               <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
                                 <td style={{padding: '8px'}}>{eventName}</td>
@@ -842,6 +861,13 @@ export default function Home() {
                                 <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
                                 <td style={{padding: '8px', fontWeight: 'bold', color: scoreObj ? '#2e7d32' : '#888'}}>
                                   {scoreObj ? scoreObj.total_score : 'Čeká se na hodnocení'}
+                                </td>
+                                <td style={{padding: '8px', textAlign: 'center'}}>
+                                  {!isEventLocked ? (
+                                    <button onClick={() => handleCancelRegistration(r.id)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>✖ Zrušit</button>
+                                  ) : (
+                                    <span style={{color: '#888', fontSize: '0.8rem'}}>Uzamčeno</span>
+                                  )}
                                 </td>
                               </tr>
                             );
