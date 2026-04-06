@@ -38,7 +38,7 @@ export default function Home() {
   const [newDiscPrice, setNewDiscPrice] = useState('');
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
 
-  // Stavy pro Rozhodčího
+  // Stavy pro Rozhodčího a Spíkra
   const [judgeEvent, setJudgeEvent] = useState('');
   const [judgeDiscipline, setJudgeDiscipline] = useState('');
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
@@ -80,7 +80,7 @@ export default function Home() {
         const { data: prices } = await supabase.from('pricing').select('*').order('id');
         setPricing(prices || []);
 
-        if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge') {
+        if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge' || prof?.role === 'speaker') {
           const { data: regs } = await supabase.from('race_participants').select('*');
           setAllRegistrations(regs || []);
 
@@ -177,7 +177,7 @@ export default function Home() {
   };
 
   const toggleEventLock = async (id, currentLocked, eventName) => {
-    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu?')) {
+    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu a hlasateli?')) {
       const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
       if (error) alert(error.message);
       else {
@@ -362,6 +362,9 @@ export default function Home() {
       alert('Hodnocení bylo úspěšně uloženo!');
       setEvaluatingParticipant(null);
       checkUser();
+      
+      // ZDE BUDE V BUDOUCNU TELEGRAM BOT ODESÍLAT VÝSLEDEK
+      // sendTelegramScore(evaluatingParticipant, total);
     }
   };
 
@@ -399,6 +402,9 @@ export default function Home() {
           {profile?.role === 'superadmin' && (
             <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Rozhodčí Pohled</button>
           )}
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('speaker')} style={effectiveRole === 'speaker' ? styles.activeTab : styles.tab}>Spíkr (Hlasatel)</button>
+          )}
           <button onClick={() => setSimulatedRole('player')} style={effectiveRole === 'player' ? styles.activeTab : styles.tab}>Hráč Pohled</button>
         </div>
       )}
@@ -423,7 +429,7 @@ export default function Home() {
         </div>
       ) : (
         <div style={styles.mainGrid}>
-          {/* LEVÝ PANEL - PROFIL */}
+          {/* LEVÝ PANEL - PROFIL (Při tisku se schová) */}
           <div className="no-print" style={styles.sideCard}>
             <h3>Můj Profil</h3>
             {editMode ? (
@@ -447,7 +453,7 @@ export default function Home() {
             )}
           </div>
 
-          {/* HLAVNÍ PANEL PODLE ROLE */}
+          {/* HLAVNÍ PANEL PODLE ROLE (Toto se bude tisknout) */}
           <div className="print-area" style={styles.card}>
             
             {/* POHLED: ADMIN / SUPERADMIN */}
@@ -487,7 +493,7 @@ export default function Home() {
                             <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
                             <td style={{padding: '8px'}}>{ev.start_num_from || 1} - {ev.start_num_to || 200}</td>
                             <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
-                              {ev.is_locked ? 'Uzamčeno pro rozhodčího' : 'Otevřeno'}
+                              {ev.is_locked ? 'Uzamčeno (Pro Rozhodčí/Spíkry)' : 'Otevřeno'}
                             </td>
                             <td style={{padding: '8px', textAlign: 'center'}}>
                               <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
@@ -796,6 +802,68 @@ export default function Home() {
                         </table>
                       </div>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* POHLED: SPÍKR (HLASATEL) */}
+            {effectiveRole === 'speaker' && (
+              <div>
+                <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
+                  <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele (Startovka a Živé Výsledky)</h3>
+                </div>
+                
+                <label style={styles.label}>Vyberte probíhající závod:</label>
+                <select style={{...styles.input, fontSize: '1.2rem', padding: '15px'}} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); setJudgeDiscipline(''); }}>
+                  <option value="">-- Zvolte závod --</option>
+                  {events.filter(ev => ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                </select>
+
+                {judgeEvent && (
+                  <div>
+                    <label style={styles.label}>Vyberte disciplínu do arény:</label>
+                    <select style={{...styles.input, fontSize: '1.2rem', padding: '15px', border: '2px solid #8d6e63'}} value={judgeDiscipline} onChange={e => setJudgeDiscipline(e.target.value)}>
+                      <option value="">-- Zvolte disciplínu --</option>
+                      {activeJudgeDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {judgeEvent && judgeDiscipline && (
+                  <div style={{marginTop: '30px'}}>
+                    <h2 style={{fontSize: '2rem', textAlign: 'center', color: '#5d4037', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>ARÉNA: {judgeDiscipline}</h2>
+                    <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
+                      <thead>
+                        <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
+                          <th style={{padding: '15px'}}>Draw</th>
+                          <th style={{padding: '15px'}}>Číslo</th>
+                          <th style={{padding: '15px'}}>Jezdec</th>
+                          <th style={{padding: '15px'}}>Kůň</th>
+                          <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {judgeStartList.length > 0 ? judgeStartList.map(r => {
+                          const isScored = scoresheets.some(s => s.participant_id === r.id);
+                          const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                          
+                          return (
+                            <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: isScored ? '#f1f8e9' : '#fff'}}>
+                              <td style={{padding: '15px', fontWeight: 'bold', color: '#5d4037'}}>{r.draw_order}.</td>
+                              <td style={{padding: '15px', fontWeight: '900', fontSize: '1.8rem'}}>{r.start_number}</td>
+                              <td style={{padding: '15px'}}>{r.rider_name}</td>
+                              <td style={{padding: '15px'}}><strong>{r.horse_name}</strong></td>
+                              <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: isScored ? '#2e7d32' : '#ccc'}}>
+                                {isScored ? `${scoreObj.total_score} bodů` : 'Na trati'}
+                              </td>
+                            </tr>
+                          );
+                        }) : (
+                          <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center', fontSize: '1.2rem'}}>Žádní přihlášení jezdci.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
