@@ -7,7 +7,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// TELEGRAM NASTAVENÍ
 const TELEGRAM_BOT_TOKEN = '8105813575:AAGk9YXZJQtRrS_73gKg-ApYn98gjG8BH1w';
 const TELEGRAM_CHAT_ID = '-1003892130465';
 
@@ -37,23 +36,34 @@ async function generateHash(message) {
 
 const disciplineRuleHints = {
   default: [
-    "Skóre se hodnotí od -1.5 (Extrémně špatné) do +1.5 (Výborné).",
-    "Základní skóre je vždy 70 bodů."
+    "Skóre se hodnotí od -1.5 (Extrémně špatné) do +1.5 (Výborné). Základní skóre je 70.",
+    "Mládež do 14 let: možnost jet cvalové pasáže v klusu za snížený počet bodů."
   ],
   ranch: [
     "Penalta 1: Za otěží, rozpadlý rámec, přílišná pomalost, přerušení chodu do 2 kroků.",
-    "Penalta 3: Cval na špatnou nohu, nežádoucí tah za otěže, křižování nad 2 kroky, porušení překážky.",
-    "Penalta 5: Zjevná neposlušnost (kopání, kousání).",
-    "Penalta 10: Nepřirozený vzhled koně.",
-    "Off Pattern (OP): Vynechání manévru, nedovolené použití druhé ruky.",
-    "DQ: Nepovolená úprava koně a výstroje, týrání, kulhavost."
+    "Penalta 3: Cval na špatnou nohu, tah za otěže, přerušení ve cvalu, krok/klus > 2 kroky, křižování > 2 kroky, vážné porušení překážky.",
+    "Penalta 5: Zjevná neposlušnost (kopání, kousání, vyhazování).",
+    "Penalta 10: Nepřirozený vzhled koně (soustavné nepřirozené nesení ocasu).",
+    "OP (Off Pattern): Vynechání/nedokončení manévru, použití druhé ruky při jednoručním vedení.",
+    "DQ: Kulhavost, nepovolená úprava koně, úmyslné týrání, drilování."
   ],
   trail: [
-    "Penalta 1/2: Lehký dotek překážky.",
-    "Penalta 1: Úder do překážky, rozrušení překážky, krok mimo.",
-    "Penalta 3: Špatný chod do 2 kroků, pád překážky.",
-    "Penalta 5: Odmítnutí překážky, hrubá neposlušnost.",
-    "DQ: Pád, třetí odmítnutí."
+    "Penalta 1/2: Lehký dotek překážky (tiknutí).",
+    "Penalta 1: Úder do překážky, krok mimo překážku (1 nohou), rozdělení nohou u kavalety.",
+    "Penalta 3: Špatný chod do 2 kroků, pád překážky, krok mimo 2 a více nohama.",
+    "Penalta 5: Odmítnutí překážky, vyhnutí se, puštění branky, sesednutí, hrubá neposlušnost.",
+    "DQ: Pád koně nebo jezdce, třetí odmítnutí."
+  ],
+  reining: [
+    "Penalta 1/2: Zpožděná změna o 1 skok, nedotočení/přetočení spinu o 1/8.",
+    "Penalta 1: Změna cvalu zpožděná o více než 1 skok, 1/4 kruhu na špatnou nohu, přetočení spinu až o 1/4.",
+    "Penalta 2: Zmrznutí ve spinu/rollbacku, klus/krok přes marker místo cvalu.",
+    "Penalta 5: Spur stop (použití ostruhy před sedlem), držení se sedla, zjevná neposlušnost."
+  ],
+  showmanship: [
+    "POZOR: Tato disciplína (Showmanship/Horsemanship) se hodnotí od -3 (Extrémně špatné) do +3 (Excelentní)!",
+    "Penalizace: Malá = 3 b., Velká = 5 b., Závažná = 10 b.",
+    "F&E (Celkový výkon a efektivita): Hodnocení 0 (průměr) až 5 (excelentní)."
   ]
 };
 
@@ -61,10 +71,14 @@ const getRulesForDiscipline = (disciplineName) => {
   const nameL = disciplineName.toLowerCase();
   if (nameL.includes('ranch') || nameL.includes('riding')) return disciplineRuleHints.ranch;
   if (nameL.includes('trail')) return disciplineRuleHints.trail;
+  if (nameL.includes('reining')) return disciplineRuleHints.reining;
+  if (nameL.includes('showmanship') || nameL.includes('horsemanship') || nameL.includes('equitation')) return disciplineRuleHints.showmanship;
   return disciplineRuleHints.default;
 };
 
 export default function Home() {
+  const [currentTab, setCurrentTab] = useState('app'); // 'app' nebo 'rules'
+  
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [email, setEmail] = useState('');
@@ -72,7 +86,6 @@ export default function Home() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(true);
   
-  // Data z databáze
   const [myHorses, setMyHorses] = useState([]);
   const [allRegistrations, setAllRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
@@ -80,16 +93,15 @@ export default function Home() {
   const [scoresheets, setScoresheets] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]); 
   
-  // Stavy pro hráče
   const [selectedEvent, setSelectedEvent] = useState('');
-  const [customRiderName, setCustomRiderName] = useState(''); // Zadané jméno jezdce (dítěte)
   const [selectedHorse, setSelectedHorse] = useState('');
   const [newHorseName, setNewHorseName] = useState(''); 
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
+  const [customRiderName, setCustomRiderName] = useState(''); 
+  
   const [editMode, setEditMode] = useState(false);
   const [playerTab, setPlayerTab] = useState('main'); 
 
-  // Stavy pro Admina
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
@@ -102,7 +114,6 @@ export default function Home() {
   const [newAccountEmail, setNewAccountEmail] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('judge');
 
-  // Stavy pro Rozhodčího a Spíkra
   const [judgeEvent, setJudgeEvent] = useState('');
   const [judgeDiscipline, setJudgeDiscipline] = useState('');
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
@@ -148,7 +159,6 @@ export default function Home() {
         setUser(user);
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         setProfile(prof);
-        if (prof) setCustomRiderName(prof.full_name || ''); // Předvyplnění jména pro hráče
         
         const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', user.id);
         setMyHorses(horses || []);
@@ -226,7 +236,6 @@ export default function Home() {
     else { 
       await logSystemAction('Úprava profilu', { name: profile.full_name });
       alert('Profil uložen!'); 
-      setCustomRiderName(profile.full_name); // Aktualizujeme předvyplněné jméno
       setEditMode(false); 
     }
   };
@@ -239,7 +248,7 @@ export default function Home() {
       generatedPassword += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     
-    alert(`SIMULACE ZALOŽENÍ ÚČTU:\nEmail: ${newAccountEmail}\nHeslo: ${generatedPassword}\nRole: ${newAccountRole}\n\n(Účet a heslo připraveno.)`);
+    alert(`SIMULACE ZALOŽENÍ ÚČTU:\nEmail: ${newAccountEmail}\nHeslo: ${generatedPassword}\nRole: ${newAccountRole}\n\n(V ostrém provozu se toto heslo automaticky odešle na zadaný e-mail.)`);
     setNewAccountEmail('');
   };
 
@@ -281,7 +290,7 @@ export default function Home() {
                     `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
       await sendTelegramMessage(tgMsg);
 
-      alert('Závod vytvořen a oznámení odesláno!'); 
+      alert('Závod vytvořen a oznámení odesláno na Telegram!'); 
       window.location.reload(); 
     }
   };
@@ -338,7 +347,7 @@ export default function Home() {
   };
 
   const handleUpdateSchedule = async (eventId, currentSchedule) => {
-    const msg = prompt("Zadejte textový plán závodů. Tento plán se ukáže všem a odešle se jako informační zpráva:", currentSchedule || "");
+    const msg = prompt("Zadejte textový plán závodů. Tento plán se ukáže všem a odešle se jako informační zpráva na Telegram:", currentSchedule || "");
     if (msg !== null) {
       const { error } = await supabase.from('events').update({ schedule: msg }).eq('id', eventId);
       if (error) alert(error.message);
@@ -356,7 +365,7 @@ export default function Home() {
   const sendManualTgMessage = async () => {
     if(!manualTgMessage) return;
     await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
-    alert('Odesláno!');
+    alert('Odesláno na Telegram!');
     setManualTgMessage('');
   };
 
@@ -391,21 +400,15 @@ export default function Home() {
       }
     });
 
-    tgMsg += `Děkujeme všem jezdcům a gratulujeme vítězům! 🎉 Pokud máte zájem o originální zapsané archy, naleznete je v naší skupině.`;
+    tgMsg += `Děkujeme všem jezdcům a gratulujeme vítězům! 🎉 Pokud máte zájem o originální zapsané archy s podpisem rozhodčího, naleznete je v naší skupině.`;
 
     await sendTelegramMessage(tgMsg);
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
-  // HRÁČ FUNKCE
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
-      return;
-    }
-
-    if (!customRiderName.trim()) {
-      alert("Zadejte prosím jméno jezdce (pokud jedete vy, nechte své jméno, pokud dítě, zadejte jeho).");
       return;
     }
 
@@ -414,8 +417,22 @@ export default function Home() {
       return;
     }
 
-    let finalHorseName = selectedHorse;
+    const hasKidsDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().match(/děti|mládež|hříbata/));
+    const hasOpenDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().includes('open'));
 
+    if (hasKidsDisc && hasOpenDisc) {
+      alert("POZOR! Nemůžete v jedné přihlášce kombinovat dětské a dospělé (Open) disciplíny. Pokud přihlašujete sebe i dítě, prosím rozdělte to do dvou samostatných odeslání.");
+      return;
+    }
+
+    if (hasKidsDisc && !customRiderName.trim()) {
+      alert("Vyberte prosím juniorskou kategorii, proto nezapomeňte do modrého rámečku zapsat jméno dítěte, které závod pojede.");
+      return;
+    }
+
+    const finalRiderName = hasKidsDisc ? customRiderName.trim() : profile.full_name;
+
+    let finalHorseName = selectedHorse;
     if (selectedHorse === 'new') {
       if (!newHorseName.trim()) {
         alert("Napište jméno nového koně!");
@@ -457,7 +474,7 @@ export default function Home() {
       return {
         user_id: user.id,
         event_id: selectedEvent,
-        rider_name: customRiderName, // POUŽIJEME VLASTNÍ JMÉNO (DÍTĚ/DOSPĚLÝ)
+        rider_name: finalRiderName,
         horse_name: finalHorseName,
         discipline: d.discipline_name,
         start_number: assignedNumber,
@@ -471,8 +488,10 @@ export default function Home() {
     const { error } = await supabase.from('race_participants').insert(registrationData);
     if (error) alert(error.message);
     else {
-      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: customRiderName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
-      alert(`Přihláška odeslána! Vaše startovní číslo na záda je: ${assignedNumber}.`);
+      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: finalRiderName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
+      alert(`Přihláška odeslána! Startovní číslo: ${assignedNumber}. Závodník: ${finalRiderName}`);
+      setCustomRiderName('');
+      setSelectedDisciplines([]);
       window.location.reload();
     }
   };
@@ -590,7 +609,7 @@ export default function Home() {
                   <h3 style={{ margin: '5px 0 0 0', color: '#444' }}>SCORESHEET: {discipline}</h3>
                   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
                     <strong style={{fontSize: '1.1rem'}}>Úloha (Pattern):</strong>
-                    <input type="text" className="print-input" placeholder="Zadejte název úlohy (např. Pattern)" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent' }} />
+                    <input type="text" className="print-input" placeholder="Zadejte název úlohy (např. Pattern #2)" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent' }} />
                   </div>
                 </div>
                 
@@ -699,6 +718,105 @@ export default function Home() {
 
   const currentRules = getRulesForDiscipline(judgeDiscipline);
 
+  const hasKidsDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().match(/děti|mládež|hříbata/));
+  const hasOpenDisc = selectedDisciplines.some(d => d.discipline_name.toLowerCase().includes('open'));
+
+  // GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ)
+  if (currentTab === 'rules') {
+    return (
+      <div style={styles.container}>
+        <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
+          <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Zpět do Aplikace</button>
+          <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
+        </div>
+        
+        <div className="no-print" style={styles.card}>
+          <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>WESTERNOVÉ HOBBY ZÁVODY POD HUMPRECHTEM</h2>
+          <h3 style={{color: '#8d6e63', textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '20px', marginBottom: '30px'}}>PROPOZICE</h3>
+
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px', fontSize: '1.1rem'}}>
+            <div>
+              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
+                <li style={{marginBottom: '10px'}}><strong>Pořadatel:</strong> JK Sobotka – Pavla Koklesová</li>
+                <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> 2. 5. 2026</li>
+                <li style={{marginBottom: '10px'}}><strong>Rozhodčí:</strong> Pavla Doubravová</li>
+                <li style={{marginBottom: '10px'}}><strong>Ředitel akce:</strong> Pavla Koklesová</li>
+                <li style={{marginBottom: '10px'}}><strong>Sekretář závodů:</strong> Leona Plocková (plockovaleona@seznam.cz)</li>
+              </ul>
+            </div>
+            <div>
+              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
+                <li style={{marginBottom: '10px'}}><strong>Místo konání:</strong> Sobotka – kolbiště a jízdárna pod Humprechtem<br/>(Adresa: Pod Humprechtem 507 43)</li>
+                <li style={{marginBottom: '10px'}}><strong>Zdravotní služba:</strong> Červený kříž</li>
+                <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 1. 5. 2026</li>
+                <li style={{marginBottom: '10px'}}><strong>Kontakty:</strong> 721 456 049, 702 165 991</li>
+              </ul>
+            </div>
+          </div>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Informace o akci a Poplatky</h4>
+          <p style={{fontSize: '1.1rem'}}>Sledujte naše oficiální informační kanály na internetu a událost Westernové hobby závody pod Humprechtem.</p>
+          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li><strong>300 Kč</strong> (kategorie Open, Hříbata)</li>
+            <li><strong>250 Kč</strong> (kategorie Mládež, Děti)</li>
+          </ul>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Časový plán</h4>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Veterinární přejímka bude probíhat od <strong>8:00 do 9:00</strong>. Předpokládaný čas zahájení akce je cca <strong>9:00</strong>. Čas je pouze orientační a může se změnit.</p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Veterinární podmínky</h4>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Kůň musí být v imunitě proti influenze (chřipce) koní. Kůň starší 12 měsíců musí být laboratorně vyšetřen s negativním výsledkem na infekční anemii, vyšetření nesmí být starší 12 měsíců. Soutěžící jsou povinni řídit se Řádem ochrany koní při veřejném vystoupení a svodu koní.</p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Všeobecné podmínky</h4>
+          <p style={{fontSize: '1.1rem'}}>Za bezpečnost nezletilého odpovídá rodič nebo jím pověřená osoba. Pokud jezdec koně dostatečně neovládá, a omezuje či ohrožuje ostatní účastníky, má pořadatel (prostřednictvím ředitele akce nebo pořadatele) právo je vyloučit bez nároku na vrácení startovného.</p>
+          <p style={{fontSize: '1.1rem'}}>Pořadatel si vyhrazuje právo neumožnit účast v soutěžním prostoru koním, kteří nejsou ve vhodném zdravotním či výživovém stavu, nebo mají nevhodně padnoucí či poškozenou výstroj, a to v zájmu zajištění welfare zvířat.</p>
+          <p style={{fontSize: '1.1rem'}}>V případě, že jezdec/vodič nedokáže dostatečně ovládat koně a tím například omezuje nebo ohrožuje ostatní účastníky – ať už v soutěžním prostoru nebo na opracovišti – má pořadatel (prostřednictvím ředitele závodů, stevarda nebo jiné odpovědné osoby) právo takového účastníka vyloučit bez nároku na vrácení startovného.</p>
+          <p style={{fontSize: '1.1rem'}}>Žádáme tímto rodiče, trenéry i jezdce, aby zvážili své schopnosti a připravenost koně i jezdce, a předešli tak situacím, které by mohly ohrozit bezpečný a férový průběh závodů.</p>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Pořadatel neručí za případné úrazy koní a jezdců, za ztráty předmětů a jejich poškození. <strong>Není potřeba vlastnit licenci nebo být členem asociace.</strong></p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>DISCIPLÍNY</h4>
+          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li>Showmanship at Halter (open, mládež, děti, hříbata)</li>
+            <li>Western Horsemanship (open, mládež, děti)</li>
+            <li>Ranch Rail Pleasure (open, mládež)</li>
+            <li>Ranch Riding (open, mládež)</li>
+            <li>Ranch Trail (open, mládež)</li>
+            <li>In-Hand Trail (open, mládež, děti, hříbata)</li>
+            <li>Trail (open, mládež, děti)</li>
+            <li>Kovbojská stezka - může se předvést ze sedla i ze země (děti, mládež, hříbata, open)</li>
+          </ul>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Kategorie</h4>
+          <ol style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li style={{marginBottom: '10px'}}><strong>Open</strong> – otevřená kategorie pro všechny. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
+            <li style={{marginBottom: '10px'}}><strong>Mládež</strong> – rozdělena na:
+              <ul>
+                <li><em>Začátečníci (Rookies):</em> do 14 let včetně (chody krok, klus - možnost individuálního posouzení).</li>
+                <li><em>Pokročilí (Advanced):</em> do 18 let včetně. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
+              </ul>
+            </li>
+            <li style={{marginBottom: '10px'}}><strong>Děti</strong> – do 12 let včetně – s vodičem nebo bez vodiče.</li>
+            <li style={{marginBottom: '10px'}}><strong>Hříbata</strong> – do 3 let včetně.</li>
+          </ol>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Výstroj</h4>
+          <p style={{fontSize: '1.1rem'}}><strong>Kůň:</strong></p>
+          <ul style={{fontSize: '1.1rem'}}>
+            <li>Výstroj může být anglická i westernová.</li>
+            <li>V rančovních disciplínách je povoleno bezudidlové vedení.</li>
+            <li>Je povoleno i obouruční vedení na pákovém udidle.</li>
+          </ul>
+          <p style={{marginTop: '10px', fontSize: '1.1rem'}}><strong>Jezdec:</strong></p>
+          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li>Westernový klobouk či přilba, košile s dlouhým rukávem, dlouhé kalhoty.</li>
+            <li><strong>Pro kategorie mládež a děti je bezpečnostní přilba povinná.</strong></li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  // ZDE ZAČÍNÁ KLASICKÁ APLIKACE (currentTab === 'app')
   return (
     <div style={styles.container}>
       <style>{`
@@ -714,6 +832,12 @@ export default function Home() {
         }
       `}</style>
 
+      {/* GLOBÁLNÍ ZÁLOŽKY PRO VŠECHNY UŽIVATELE */}
+      <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
+        <button onClick={() => setCurrentTab('app')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
+        <button onClick={() => setCurrentTab('rules')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
+      </div>
+
       {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
         <div className="no-print" style={{...styles.superAdminBar, flexWrap: 'wrap'}}>
           <strong>{profile?.role === 'superadmin' ? 'SUPERADMIN:' : 'ADMIN:'}</strong> 
@@ -727,15 +851,7 @@ export default function Home() {
           {profile?.role === 'superadmin' && (
             <button onClick={() => setSimulatedRole('speaker')} style={effectiveRole === 'speaker' ? styles.activeTab : styles.tab}>Spíkr</button>
           )}
-          <button onClick={() => setSimulatedRole('rules')} style={effectiveRole === 'rules' ? styles.activeTab : styles.tab}>Pravidla</button>
           <button onClick={() => setSimulatedRole('player')} style={effectiveRole === 'player' ? styles.activeTab : styles.tab}>Hráč Pohled</button>
-        </div>
-      )}
-
-      {profile?.role !== 'superadmin' && profile?.role !== 'admin' && (
-        <div className="no-print" style={{...styles.superAdminBar, flexWrap: 'wrap', background: '#5d4037'}}>
-          <button onClick={() => setSimulatedRole('player')} style={effectiveRole === 'player' ? styles.activeTab : styles.tab}>Závody</button>
-          <button onClick={() => setSimulatedRole('rules')} style={effectiveRole === 'rules' ? styles.activeTab : styles.tab}>Pravidla</button>
         </div>
       )}
 
@@ -786,97 +902,6 @@ export default function Home() {
           </div>
 
           <div className="print-area" style={styles.card}>
-            
-            {effectiveRole === 'rules' && (
-              <div className="no-print">
-                <h3 style={{marginTop: 0, color: '#5d4037', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>Propozice a Pravidla</h3>
-                <div style={{background: '#fafafa', padding: '30px', borderRadius: '8px', border: '1px solid #ddd', lineHeight: '1.6'}}>
-                  
-                  <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>WESTERNOVÉ HOBBY ZÁVODY POD HUMPRECHTEM</h2>
-                  <h3 style={{color: '#8d6e63', textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '20px', marginBottom: '30px'}}>PROPOZICE</h3>
-
-                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px'}}>
-                    <div>
-                      <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
-                        <li style={{marginBottom: '10px'}}><strong>Pořadatel:</strong> JK Sobotka – Pavla Koklesová</li>
-                        <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> 2. 5. 2026</li>
-                        <li style={{marginBottom: '10px'}}><strong>Rozhodčí:</strong> Pavla Doubravová</li>
-                        <li style={{marginBottom: '10px'}}><strong>Ředitel akce:</strong> Pavla Koklesová</li>
-                        <li style={{marginBottom: '10px'}}><strong>Sekretář závodů:</strong> Leona Plocková (plockovaleona@seznam.cz)</li>
-                      </ul>
-                    </div>
-                    <div>
-                      <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
-                        <li style={{marginBottom: '10px'}}><strong>Místo konání:</strong> Sobotka – kolbiště a jízdárna pod Humprechtem<br/>(Adresa: Pod Humprechtem 507 43)</li>
-                        <li style={{marginBottom: '10px'}}><strong>Zdravotní služba:</strong> Červený kříž</li>
-                        <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 1. 5. 2026</li>
-                        <li style={{marginBottom: '10px'}}><strong>Kontakty:</strong> 721 456 049, 702 165 991</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <h4 style={{color: '#5d4037'}}>Informace o akci a Poplatky</h4>
-                  <p>Sledujte naše oficiální informační kanály na internetu a událost Westernové hobby závody pod Humprechtem.</p>
-                  <ul style={{marginBottom: '20px'}}>
-                    <li><strong>300 Kč</strong> (kategorie Open, Hříbata)</li>
-                    <li><strong>250 Kč</strong> (kategorie Mládež, Děti)</li>
-                  </ul>
-
-                  <h4 style={{color: '#5d4037'}}>Časový plán</h4>
-                  <p style={{marginBottom: '20px'}}>Veterinární přejímka bude probíhat od <strong>8:00 do 9:00</strong>. Předpokládaný čas zahájení akce je cca <strong>9:00</strong>. Čas je pouze orientační a může se změnit.</p>
-
-                  <h4 style={{color: '#5d4037'}}>Veterinární podmínky</h4>
-                  <p style={{marginBottom: '20px'}}>Kůň musí být v imunitě proti influenze (chřipce) koní. Kůň starší 12 měsíců musí být laboratorně vyšetřen s negativním výsledkem na infekční anemii, vyšetření nesmí být starší 12 měsíců. Soutěžící jsou povinni řídit se Řádem ochrany koní při veřejném vystoupení a svodu koní.</p>
-
-                  <h4 style={{color: '#5d4037'}}>Všeobecné podmínky</h4>
-                  <p>Za bezpečnost nezletilého odpovídá rodič nebo jím pověřená osoba. Pokud jezdec koně dostatečně neovládá, a omezuje či ohrožuje ostatní účastníky, má pořadatel (prostřednictvím ředitele akce nebo pořadatele) právo je vyloučit bez nároku na vrácení startovného.</p>
-                  <p>Pořadatel si vyhrazuje právo neumožnit účast v soutěžním prostoru koním, kteří nejsou ve vhodném zdravotním či výživovém stavu, nebo mají nevhodně padnoucí či poškozenou výstroj, a to v zájmu zajištění welfare zvířat.</p>
-                  <p>V případě, že jezdec/vodič nedokáže dostatečně ovládat koně a tím například omezuje nebo ohrožuje ostatní účastníky – ať už v soutěžním prostoru nebo na opracovišti – má pořadatel (prostřednictvím ředitele závodů, stevarda nebo jiné odpovědné osoby) právo takového účastníka vyloučit bez nároku na vrácení startovného.</p>
-                  <p>Žádáme tímto rodiče, trenéry i jezdce, aby zvážili své schopnosti a připravenost koně i jezdce, a předešli tak situacím, které by mohly ohrozit bezpečný a férový průběh závodů.</p>
-                  <p style={{marginBottom: '20px'}}>Pořadatel neručí za případné úrazy koní a jezdců, za ztráty předmětů a jejich poškození. <strong>Není potřeba vlastnit licenci nebo být členem asociace.</strong></p>
-
-                  <h4 style={{color: '#5d4037'}}>DISCIPLÍNY</h4>
-                  <ul style={{marginBottom: '20px'}}>
-                    <li>Showmanship at Halter (open, mládež, děti, hříbata)</li>
-                    <li>Western Horsemanship (open, mládež, děti)</li>
-                    <li>Ranch Rail Pleasure (open, mládež)</li>
-                    <li>Ranch Riding (open, mládež)</li>
-                    <li>Ranch Trail (open, mládež)</li>
-                    <li>In-Hand Trail (open, mládež, děti, hříbata)</li>
-                    <li>Trail (open, mládež, děti)</li>
-                    <li>Kovbojská stezka - může se předvést ze sedla i ze země (děti, mládež, hříbata, open)</li>
-                  </ul>
-
-                  <h4 style={{color: '#5d4037'}}>Kategorie</h4>
-                  <ol style={{marginBottom: '20px'}}>
-                    <li style={{marginBottom: '10px'}}><strong>Open</strong> – otevřená kategorie pro všechny. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
-                    <li style={{marginBottom: '10px'}}><strong>Mládež</strong> – rozdělena na:
-                      <ul>
-                        <li><em>Začátečníci (Rookies):</em> do 14 let včetně (chody krok, klus - možnost individuálního posouzení).</li>
-                        <li><em>Pokročilí (Advanced):</em> do 18 let včetně. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
-                      </ul>
-                    </li>
-                    <li style={{marginBottom: '10px'}}><strong>Děti</strong> – do 12 let včetně – s vodičem nebo bez vodiče.</li>
-                    <li style={{marginBottom: '10px'}}><strong>Hříbata</strong> – do 3 let včetně.</li>
-                  </ol>
-
-                  <h4 style={{color: '#5d4037'}}>Výstroj</h4>
-                  <p><strong>Kůň:</strong></p>
-                  <ul>
-                    <li>Výstroj může být anglická i westernová.</li>
-                    <li>V rančovních disciplínách je povoleno bezudidlové vedení.</li>
-                    <li>Je povoleno i obouruční vedení na pákovém udidle.</li>
-                  </ul>
-                  <p style={{marginTop: '10px'}}><strong>Jezdec:</strong></p>
-                  <ul style={{marginBottom: '20px'}}>
-                    <li>Westernový klobouk či přilba, košile s dlouhým rukávem, dlouhé kalhoty.</li>
-                    <li><strong>Pro kategorie mládež a děti je bezpečnostní přilba povinná.</strong></li>
-                  </ul>
-
-                </div>
-              </div>
-            )}
-
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
                 <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
@@ -1121,9 +1146,9 @@ export default function Home() {
                 
                 <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'}>
                   {evaluatingParticipant ? (
-                    <div style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd', display: 'flex', gap: '20px'}}>
+                    <div style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd', display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
                       
-                      <div style={{flex: 2}}>
+                      <div style={{flex: 2, minWidth: '300px'}}>
                         <div style={{display: 'flex', justifyContent: 'space-between'}}>
                           <h2 style={{marginTop: 0}}>{evaluatingParticipant.discipline}</h2>
                           <h2 style={{marginTop: 0}}>Startovní číslo: {evaluatingParticipant.start_number}</h2>
@@ -1177,9 +1202,9 @@ export default function Home() {
                         </div>
                       </div>
 
-                      <div className="no-print" style={{flex: 1, background: '#fff9c4', padding: '15px', borderRadius: '8px', border: '1px solid #fbc02d'}}>
-                        <h4 style={{marginTop: 0, color: '#f57f17', borderBottom: '1px solid #fbc02d', paddingBottom: '5px'}}>Nápověda (Pravidla)</h4>
-                        <ul style={{paddingLeft: '20px', fontSize: '0.85rem', color: '#333'}}>
+                      <div className="no-print" style={{flex: 1, minWidth: '250px', background: '#fff9c4', padding: '15px', borderRadius: '8px', border: '1px solid #fbc02d'}}>
+                        <h4 style={{marginTop: 0, color: '#f57f17', borderBottom: '1px solid #fbc02d', paddingBottom: '5px'}}>Tahák (Pravidla)</h4>
+                        <ul style={{paddingLeft: '20px', fontSize: '0.9rem', color: '#333'}}>
                           {getRulesForDiscipline(evaluatingParticipant.discipline).map((rule, idx) => (
                             <li key={idx} style={{marginBottom: '8px'}}>{rule}</li>
                           ))}
@@ -1210,8 +1235,8 @@ export default function Home() {
 
                       {judgeEvent && judgeDiscipline && (
                         <div style={{marginTop: '20px'}}>
-                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                            <h4>Startovní pořadí: {judgeDiscipline}</h4>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                            <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
                             <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '5px 10px'}}>📣 Oznámit konec disciplíny navenek</button>
                           </div>
                           <table style={{width: '100%', borderCollapse: 'collapse'}}>
@@ -1363,9 +1388,6 @@ export default function Home() {
                       {events.filter(ev => !ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name} ({new Date(ev.event_date).toLocaleDateString()})</option>)}
                     </select>
 
-                    <label style={styles.label}>Jméno jezdce (pokud přihlašujete dítě, uveďte jeho jméno):</label>
-                    <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #8d6e63'}} placeholder="Zadejte jméno jezdce" />
-
                     <label style={styles.label}>Vyberte koně:</label>
                     <select style={styles.input} value={selectedHorse} onChange={e => setSelectedHorse(e.target.value)}>
                       <option value="">-- Vyberte koně z historie --</option>
@@ -1389,12 +1411,31 @@ export default function Home() {
                         ))}
                       </div>
                     )}
+
+                    {hasKidsDisc && (
+                      <div style={{background: '#e3f2fd', padding: '15px', borderRadius: '6px', border: '1px solid #0288d1', marginTop: '15px'}}>
+                        <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Jméno závodícího dítěte / mládežníka:</label>
+                        <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}} placeholder="Zadejte jméno dítěte" />
+                      </div>
+                    )}
+
+                    {hasKidsDisc && hasOpenDisc && (
+                      <div style={{background: '#ffebee', padding: '15px', borderRadius: '6px', border: '2px solid #d32f2f', color: '#d32f2f', fontWeight: 'bold', marginTop: '15px'}}>
+                        ⚠️ Nelze kombinovat dětské a dospělé (Open) disciplíny v jedné přihlášce! Pokud přihlašujete sebe do Open a dítě do Mládeže, musíte odeslat dvě samostatné přihlášky.
+                      </div>
+                    )}
                     
                     <div style={styles.priceTag}>
                       Celkem k platbě: {selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} Kč
                     </div>
 
-                    <button onClick={handleRaceRegistration} style={styles.btnSecondary}>ODESLAT PŘIHLÁŠKU</button>
+                    <button 
+                      onClick={handleRaceRegistration} 
+                      style={{...styles.btnSecondary, background: (hasKidsDisc && hasOpenDisc) ? '#ccc' : '#8d6e63', cursor: (hasKidsDisc && hasOpenDisc) ? 'not-allowed' : 'pointer'}}
+                      disabled={hasKidsDisc && hasOpenDisc}
+                    >
+                      ODESLAT PŘIHLÁŠKU
+                    </button>
 
                     {allRegistrations.filter(r => r.user_id === user?.id).length > 0 && (
                       <div style={{marginTop: '40px'}}>
@@ -1412,6 +1453,7 @@ export default function Home() {
                             <thead>
                               <tr style={{background: '#eee', textAlign: 'left'}}>
                                 <th style={{padding: '8px'}}>Závod</th>
+                                <th style={{padding: '8px'}}>Jezdec</th>
                                 <th style={{padding: '8px'}}>Kůň</th>
                                 <th style={{padding: '8px'}}>Disciplína</th>
                                 <th style={{padding: '8px'}}>Záda</th>
@@ -1429,6 +1471,7 @@ export default function Home() {
                                 return (
                                   <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
                                     <td style={{padding: '8px'}}>{eventName}</td>
+                                    <td style={{padding: '8px', fontWeight: 'bold'}}>{r.rider_name}</td>
                                     <td style={{padding: '8px'}}>{r.horse_name}</td>
                                     <td style={{padding: '8px'}}>{r.discipline}</td>
                                     <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
