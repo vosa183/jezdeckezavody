@@ -84,7 +84,6 @@ const isFoalDiscipline = (discName) => {
   return /hříb|hrib/i.test(discName);
 };
 const isAdultDiscipline = (discName) => {
-  // Pokud to není vyloženě dětské a nejsou to hříbata, bereme to jako dospělou (Open, bez přívlastku atd.)
   return !isKidsDiscipline(discName) && !isFoalDiscipline(discName);
 };
 
@@ -381,7 +380,8 @@ export default function Home() {
     setManualTgMessage('');
   };
 
-  const handleEndCompetitionAndSendResults = async (eventId) => {
+  // --- KONEC BLOKU 1 ---
+const handleEndCompetitionAndSendResults = async (eventId) => {
     if(!confirm("Opravdu chcete slavnostně ukončit závody a odeslat kompletní výsledky?")) return;
 
     const eventObj = events.find(e => e.id === eventId);
@@ -418,18 +418,15 @@ export default function Home() {
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
-  // POMOCNÉ STAVY PRO FORMULÁŘ (BLBUVZDORNOST)
-  const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
-  const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
-  const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
-
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
       return;
     }
 
-    if (mixWarning) {
+    const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
+    const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
+    if (uiHasKidsDisc && uiHasAdultDisc) {
       alert("NELZE KOMBINOVAT! Z bezpečnostních důvodů nelze v jedné přihlášce kombinovat dětské a dospělé disciplíny. Prosím, odešlete je zvlášť.");
       return;
     }
@@ -464,7 +461,6 @@ export default function Home() {
     const toNum = selectedEventObj?.start_num_to || 200;
     const capacity = toNum - fromNum + 1;
 
-    // SYSTÉM PRO ZNOVUPOUŽITÍ STARTOVNÍHO ČÍSLA (DB PULL)
     const { data: freshRegs } = await supabase.from('race_participants')
         .select('start_number, rider_name, horse_name')
         .eq('event_id', selectedEvent);
@@ -745,8 +741,13 @@ export default function Home() {
 
   const currentRules = getRulesForDiscipline(judgeDiscipline);
 
-  // GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ PRO VŠECHNY)
-  if (currentTab === 'rules') {
+  const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
+  const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
+  const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
+
+  // --- KONEC BLOKU 2 ---
+// GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ PRO VŠECHNY PŘIHLÁŠENÉ)
+  if (currentTab === 'rules' && user) {
     return (
       <div style={styles.container}>
         <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
@@ -840,7 +841,7 @@ export default function Home() {
     );
   }
 
-  // ZDE ZAČÍNÁ KLASICKÁ APLIKACE (currentTab === 'app')
+  // ZDE ZAČÍNÁ KLASICKÁ APLIKACE
   return (
     <div style={styles.container}>
       <style>{`
@@ -856,11 +857,13 @@ export default function Home() {
         }
       `}</style>
 
-      {/* GLOBÁLNÍ ZÁLOŽKY PRO VŠECHNY UŽIVATELE */}
-      <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
-        <button onClick={() => setCurrentTab('app')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
-        <button onClick={() => setCurrentTab('rules')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
-      </div>
+      {/* GLOBÁLNÍ ZÁLOŽKY - VIDITELNÉ JEN PRO PŘIHLÁŠENÉ UŽIVATELE */}
+      {user && (
+        <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
+          <button onClick={() => setCurrentTab('app')} style={{ background: currentTab === 'app' ? '#ffb300' : 'transparent', color: currentTab === 'app' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
+          <button onClick={() => setCurrentTab('rules')} style={{ background: currentTab === 'rules' ? '#ffb300' : 'transparent', color: currentTab === 'rules' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
+        </div>
+      )}
 
       {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
         <div className="no-print" style={{...styles.superAdminBar, flexWrap: 'wrap'}}>
