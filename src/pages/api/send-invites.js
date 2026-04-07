@@ -1,20 +1,17 @@
 import nodemailer from 'nodemailer';
 
 export default async function handler(req, res) {
-  // Povolíme pouze POST požadavky z našeho frontendu
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
   const { eventName, eventDate, emails } = req.body;
 
-  // Kontrola, zda máme na serveru nastavené přihlašovací údaje k Seznamu
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
     return res.status(500).json({ message: 'Chybí e-mailová konfigurace na serveru.' });
   }
 
   try {
-    // Připojení k Seznam SMTP
     const transporter = nodemailer.createTransport({
       host: 'smtp.seznam.cz',
       port: 465,
@@ -25,10 +22,9 @@ export default async function handler(req, res) {
       },
     });
 
-    // Vytvoření e-mailu s texty z pozvánky
     const mailOptions = {
       from: `"Závody pod Humprechtem" <${process.env.EMAIL_USER}>`,
-      bcc: emails, // 'bcc' znamená skrytá kopie - jezdci na sebe navzájem neuvidí e-maily!
+      bcc: emails, 
       subject: `Nové závody vypsány: ${eventName}`,
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; background: #fafafa; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
@@ -46,7 +42,6 @@ export default async function handler(req, res) {
       `,
     };
 
-    // Odeslání e-mailu
     await transporter.sendMail(mailOptions);
     res.status(200).json({ success: true });
     
