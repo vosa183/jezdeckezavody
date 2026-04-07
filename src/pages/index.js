@@ -7,23 +7,16 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-const TELEGRAM_BOT_TOKEN = '8105813575:AAGk9YXZJQtRrS_73gKg-ApYn98gjG8BH1w';
-const TELEGRAM_CHAT_ID = '-1003892130465';
-
+// BEZPEČNÉ ODESÍLÁNÍ (TOKENY JSOU SCHOVANÉ NA SERVERU)
 const sendTelegramMessage = async (text) => {
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-    await fetch(url, {
+    await fetch('/api/telegram', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: text,
-        parse_mode: 'HTML'
-      })
+      body: JSON.stringify({ text: text })
     });
   } catch (err) {
-    console.error('Chyba při odesílání na komunikátor:', err);
+    console.error('Chyba při odesílání na náš server:', err);
   }
 };
 
@@ -291,17 +284,41 @@ export default function Home() {
       start_num_from: parseInt(newStartNumFrom),
       start_num_to: parseInt(newStartNumTo)
     }]);
-    if (error) alert(error.message);
-    else { 
+    
+    if (error) {
+      alert(error.message);
+    } else { 
       await logSystemAction('Vypsán nový závod', { name: newEventName, from: newStartNumFrom, to: newStartNumTo });
       
+      // ODESLÁNÍ DO TELEGRAMU
       const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n` +
                     `🏆 <b>Název:</b> ${newEventName}\n` +
                     `📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\n` +
                     `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
       await sendTelegramMessage(tgMsg);
 
-      alert('Závod vytvořen a oznámení odesláno na Telegram!'); 
+      // ODESLÁNÍ E-MAILOVÝCH POZVÁNEK PŘES NÁŠ MŮSTEK
+      try {
+        const { data: profs } = await supabase.from('profiles').select('email').not('email', 'is', null);
+        if (profs && profs.length > 0) {
+          const allEmails = profs.map(p => p.email).filter(e => e.includes('@'));
+          if (allEmails.length > 0) {
+            await fetch('/api/send-invites', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                eventName: newEventName,
+                eventDate: newEventDate,
+                emails: allEmails
+              })
+            });
+          }
+        }
+      } catch (mailErr) {
+        console.error('Chyba při volání mailového můstku:', mailErr);
+      }
+
+      alert('Závod vytvořen a oznámení odesláno do Telegramu a e-mailem všem jezdcům!'); 
       window.location.reload(); 
     }
   };
@@ -379,9 +396,8 @@ export default function Home() {
     alert('Odesláno na Telegram!');
     setManualTgMessage('');
   };
-
-  // --- KONEC BLOKU 1 ---
-const handleEndCompetitionAndSendResults = async (eventId) => {
+  // # Blok 2
+  const handleEndCompetitionAndSendResults = async (eventId) => {
     if(!confirm("Opravdu chcete slavnostně ukončit závody a odeslat kompletní výsledky?")) return;
 
     const eventObj = events.find(e => e.id === eventId);
@@ -418,15 +434,18 @@ const handleEndCompetitionAndSendResults = async (eventId) => {
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
+  // POMOCNÉ STAVY PRO FORMULÁŘ (BLBUVZDORNOST)
+  const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
+  const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
+  const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
+
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
       return;
     }
 
-    const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
-    const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
-    if (uiHasKidsDisc && uiHasAdultDisc) {
+    if (mixWarning) {
       alert("NELZE KOMBINOVAT! Z bezpečnostních důvodů nelze v jedné přihlášce kombinovat dětské a dospělé disciplíny. Prosím, odešlete je zvlášť.");
       return;
     }
@@ -461,6 +480,7 @@ const handleEndCompetitionAndSendResults = async (eventId) => {
     const toNum = selectedEventObj?.start_num_to || 200;
     const capacity = toNum - fromNum + 1;
 
+    // SYSTÉM PRO ZNOVUPOUŽITÍ STARTOVNÍHO ČÍSLA (DB PULL)
     const { data: freshRegs } = await supabase.from('race_participants')
         .select('start_number, rider_name, horse_name')
         .eq('event_id', selectedEvent);
@@ -744,9 +764,8 @@ const handleEndCompetitionAndSendResults = async (eventId) => {
   const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
   const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
   const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
-
-  // --- KONEC BLOKU 2 ---
-// GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ PRO VŠECHNY PŘIHLÁŠENÉ)
+// # Blok 3
+  // GLOBÁLNÍ POHLED PRAVIDEL (KDYKOLIV DOSTUPNÝ POUZE PRO PŘIHLÁŠENÉ UŽIVATELE)
   if (currentTab === 'rules' && user) {
     return (
       <div style={styles.container}>
