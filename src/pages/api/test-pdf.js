@@ -4,49 +4,45 @@ import path from 'path';
 
 export default async function handler(req, res) {
   try {
-    // Najdeme cestu k tvému nahranému prázdnému PDF v public složce
     const filePath = path.join(process.cwd(), 'public', 'pozvanka.pdf');
     const existingPdfBytes = fs.readFileSync(filePath);
 
-    // Načteme PDF do paměti
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
-    
-    // Vezmeme první stránku
     const pages = pdfDoc.getPages();
     const firstPage = pages[0];
-
-    // Zjistíme rozměry stránky (pomůže nám to s centrováním)
+    
+    // Zjistíme rozměry stránky
     const { width, height } = firstPage.getSize();
 
-    // Načteme standardní tučný font
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // TESTOVACÍ TEXTY
     const testName = "JARNÍ CENA JK SOBOTKA";
     const testDate = "Datum konání: 15. 5. 2026";
 
-    // 1. Tisk názvu závodu (Tady budeme ladit souřadnice X a Y)
+    // AUTOMATICKÉ CENTROVÁNÍ - změříme šířku konkrétního textu
+    const nameWidth = font.widthOfTextAtSize(testName, 24);
+    const dateWidth = font.widthOfTextAtSize(testDate, 16);
+
+    // 1. NÁZEV ZÁVODU (do dřevěné cedule)
     firstPage.drawText(testName, {
-      x: 100, // Pozice zleva doprava
-      y: height - 300, // Pozice odspodu nahoru (height je úplný vršek stránky)
+      x: (width - nameWidth) / 2, // Perfektní střed!
+      y: height - 245, // Posunuto výš (menší odečet = vyšší pozice na stránce)
       size: 24,
       font: font,
-      color: rgb(0.36, 0.25, 0.22), // Barva v RGB (tmavě hnědá #5d4037)
+      color: rgb(0.36, 0.25, 0.22), 
     });
 
-    // 2. Tisk data
+    // 2. DATUM ZÁVODU (do prázdné stuhy)
     firstPage.drawText(testDate, {
-      x: 150, 
-      y: height - 350, 
-      size: 18,
+      x: (width - dateWidth) / 2, 
+      y: height - 395, // Posunuto níž pod nápis Humprecht
+      size: 16,
       font: font,
-      color: rgb(0, 0, 0), // Černá barva
+      color: rgb(0.2, 0.2, 0.2), 
     });
 
-    // Uložíme nové PDF
     const pdfBytes = await pdfDoc.save();
 
-    // Odešleme ho rovnou tobě na obrazovku k prohlédnutí
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="test-pozvanky.pdf"');
     res.status(200).send(Buffer.from(pdfBytes));
