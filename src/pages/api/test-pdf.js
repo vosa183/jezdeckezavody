@@ -14,16 +14,15 @@ export default async function handler(req, res) {
     const { width, height } = firstPage.getSize();
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Změnili jsme na schválně dlouhý text, abychom otestovali zmenšování!
+    // Dlouhý testovací název pro zkoušku zmenšování
     const testName = "VELKÁ JARNÍ CENA JK SOBOTKA - WESTERNOVÝ SPECIÁL"; 
     const testDate = "Datum konání: 15. 5. 2026";
 
     // 1. NÁZEV ZÁVODU S CHYTROU ÚPRAVOU VELIKOSTI
-    let nameSize = 24; // Výchozí velikost písma
+    let nameSize = 24; 
     let nameWidth = font.widthOfTextAtSize(testName, nameSize);
-    const maxWidth = width - 120; // Necháme z každé strany 60 bodů okraj
+    const maxWidth = width - 120; 
 
-    // Pokud je text širší než náš limit, plynule ho zmenšujeme
     while (nameWidth > maxWidth && nameSize > 10) {
       nameSize -= 1;
       nameWidth = font.widthOfTextAtSize(testName, nameSize);
@@ -31,13 +30,13 @@ export default async function handler(req, res) {
 
     firstPage.drawText(testName, {
       x: (width - nameWidth) / 2, 
-      y: height - 320, // Velký skok dolů přímo do středu cedule
-      size: nameSize, // Zde se použije upravená velikost
+      y: height - 295, // Zlatá střední cesta! Mělo by to trefit střed vrchní cedule.
+      size: nameSize, 
       font: font,
       color: rgb(0.36, 0.25, 0.22), 
     });
 
-    // 2. DATUM ZÁVODU (Tady jsme se minule trefili přesně, tak neměníme)
+    // 2. DATUM ZÁVODU 
     const dateWidth = font.widthOfTextAtSize(testDate, 18);
     firstPage.drawText(testDate, {
       x: (width - dateWidth) / 2, 
