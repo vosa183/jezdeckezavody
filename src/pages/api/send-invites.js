@@ -22,24 +22,53 @@ export default async function handler(req, res) {
       },
     });
 
+    // Získání absolutní adresy tvého webu pro stažení a připojení PDF
+    const host = req.headers.host;
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const pdfUrl = `${protocol}://${host}/pozvanka.pdf`; // Zde předpokládáme název 'pozvanka.pdf' ve složce public
+
     const mailOptions = {
       from: `"Závody pod Humprechtem" <${process.env.EMAIL_USER}>`,
       bcc: emails, 
       subject: `Nové závody vypsány: ${eventName}`,
       html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; background: #fafafa; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
-          <h2 style="color: #5d4037; text-align: center;">WESTERNOVÉ HOBBY ZÁVODY<br/>POD HUMPRECHTEM</h2>
-          <hr style="border: 1px solid #8d6e63; margin-bottom: 20px;" />
-          <p style="font-size: 1.1rem; color: #333;">Dobrý den,</p>
-          <p style="font-size: 1.1rem; color: #333;">právě jsme v našem systému otevřeli přihlášky na nový závod: <strong>${eventName}</strong>.</p>
-          <p style="font-size: 1.1rem; color: #333;"><strong>Datum konání:</strong> ${new Date(eventDate).toLocaleDateString('cs-CZ')}</p>
-          <p style="font-size: 1.1rem; color: #333;">Zveme vás na kolbiště pod zámkem Humprecht. Přihlášky můžete podávat rovnou v našem závodním portálu.</p>
-          <div style="background: #ffe0b2; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
-            <strong style="color: #e65100; font-size: 1.2rem;">🍺 OBČERSTVENÍ ZAJIŠTĚNO 🍔</strong>
+        <div style="background-color: #f4ece4; padding: 40px; font-family: 'Trebuchet MS', sans-serif; text-align: center;">
+          <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border: 4px double #5d4037; padding: 30px; box-shadow: 5px 5px 15px rgba(0,0,0,0.2);">
+            <h1 style="color: #5d4037; font-size: 28px; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 2px;">WESTERNOVÉ HOBBY ZÁVODY</h1>
+            <h2 style="color: #8d6e63; font-size: 22px; margin-top: 0; margin-bottom: 25px; letter-spacing: 3px;">POD HUMPRECHTEM</h2>
+
+            <p style="font-size: 18px; color: #333; line-height: 1.6;">
+              Dobrý den,<br><br>
+              právě jsme otevřeli přihlášky na nový závod:<br>
+              <strong style="font-size: 22px; color: #5d4037;">${eventName}</strong>
+            </p>
+
+            <div style="background: #eefeeb; border: 2px dashed #4caf50; padding: 15px; margin: 25px 0;">
+              <h3 style="margin: 0; color: #2e7d32; font-size: 20px;">Datum konání: ${new Date(eventDate).toLocaleDateString('cs-CZ')}</h3>
+            </div>
+
+            <p style="font-size: 18px; color: #333; font-weight: bold; text-transform: uppercase;">
+              KOLBIŠTĚ POD ZÁMKEM HUMPRECHT
+            </p>
+
+            <div style="background: #ffe0b2; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0; border: 2px solid #e65100;">
+              <strong style="color: #e65100; font-size: 20px; text-transform: uppercase;">🍺 OBČERSTVENÍ ZAJIŠTĚNO 🍔</strong>
+            </div>
+
+            <p style="font-size: 16px; color: #555;">
+              Přihlášky můžete podávat rovnou v našem závodním portálu.<br><br>
+              Těšíme se na vás!<br>
+              <em>Tým JK Sobotka</em>
+            </p>
           </div>
-          <p style="font-size: 1.1rem; color: #333;">Těšíme se na vás pod Humprechtem!<br/><em>Tým JK Sobotka</em></p>
         </div>
       `,
+      attachments: [
+        {
+          filename: 'Pozvanka_Humprecht.pdf',
+          path: pdfUrl
+        }
+      ]
     };
 
     await transporter.sendMail(mailOptions);
