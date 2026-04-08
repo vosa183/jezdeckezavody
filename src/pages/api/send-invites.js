@@ -11,7 +11,7 @@ export default async function handler(req, res) {
   const { eventName, eventDate, emails } = req.body;
 
   try {
-    // 1. VYTVOŘENÍ PDF NA MÍRU S NAŠIMI SOUŘADNICEMI
+    // 1. VYTVOŘENÍ PDF NA MÍRU (S DOKONALÝMI BARVAMI A SOUŘADNICEMI)
     const filePath = path.join(process.cwd(), 'public', 'pozvanka.pdf');
     const existingPdfBytes = fs.readFileSync(filePath);
 
@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const eventDateString = `Datum konání: ${new Date(eventDate).toLocaleDateString('cs-CZ')}`;
 
-    // Chytré zmenšování názvu, kdyby byl extra dlouhý
+    // Chytré zmenšování názvu pro jistotu
     let nameSize = 24; 
     let nameWidth = font.widthOfTextAtSize(eventName, nameSize);
     const maxWidth = width - 120; 
@@ -34,37 +34,41 @@ export default async function handler(req, res) {
       nameWidth = font.widthOfTextAtSize(eventName, nameSize);
     }
 
-    // Tisk názvu do cedule (souřadnice 295)
+    // Nápis závodu (Sněhově bílá do cedule)
     firstPage.drawText(eventName, {
       x: (width - nameWidth) / 2, 
       y: height - 295, 
       size: nameSize, 
       font: font,
-      color: rgb(0.36, 0.25, 0.22), 
+      color: rgb(1, 1, 1), 
     });
 
-    // Tisk data pod stuhu (souřadnice 410)
+    // Datum závodu (Černá barva na oblohu)
     const dateWidth = font.widthOfTextAtSize(eventDateString, 18);
     firstPage.drawText(eventDateString, {
       x: (width - dateWidth) / 2, 
       y: height - 410, 
       size: 18,
       font: font,
-      color: rgb(0.36, 0.25, 0.22), 
+      color: rgb(0, 0, 0), 
     });
 
-    // Uložení PDF do paměti
     const pdfBytes = await pdfDoc.save();
     const pdfBuffer = Buffer.from(pdfBytes);
 
-    // 2. ODESLÁNÍ PDF DO TELEGRAMU
+    // 2. ODESLÁNÍ DO TELEGRAMU S NÁDHERNÝM TEXTEM
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
       const formData = new FormData();
       formData.append('chat_id', process.env.TELEGRAM_CHAT_ID);
       
       const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
       formData.append('document', blob, 'Pozvanka.pdf');
-      formData.append('caption', `Oficiální leták pro závod: ${eventName} 🤠`);
+      
+      // Vymazlený text pro Telegram (podporuje HTML formátování)
+      const tgCaption = `🤠 <b>NOVÉ ZÁVODY VYPSÁNY!</b> 🤠\n\n🏆 <b>${eventName}</b>\n📅 <b>${eventDateString}</b>\n📍 Kolbiště pod zámkem Humprecht\n\n🍔 Občerstvení je plně zajištěno!\n\nPřihlášky jsou právě otevřeny v našem systému. Těšíme se na vás! 👇`;
+      
+      formData.append('caption', tgCaption);
+      formData.append('parse_mode', 'HTML');
 
       await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendDocument`, {
         method: 'POST',
@@ -72,7 +76,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. ODESLÁNÍ NA E-MAILY PŘES SEZNAM (jakmile bude Seznam ověřen)
+    // 3. ODESLÁNÍ NA E-MAILY PŘES SEZNAM (jakmile nám ho schválí)
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS && emails && emails.length > 0) {
       const transporter = nodemailer.createTransport({
         host: 'smtp.seznam.cz',
@@ -87,7 +91,7 @@ export default async function handler(req, res) {
       const mailOptions = {
         from: `"Závody pod Humprechtem" <${process.env.EMAIL_USER}>`,
         bcc: emails, 
-        subject: `Nové závody vypsány: ${eventName}`,
+        subject: `Nové závody: ${eventName}`,
         html: `
           <div style="background-color: #f4ece4; padding: 40px; font-family: 'Trebuchet MS', sans-serif; text-align: center;">
             <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border: 4px double #5d4037; padding: 30px; box-shadow: 5px 5px 15px rgba(0,0,0,0.2);">
@@ -108,7 +112,7 @@ export default async function handler(req, res) {
                 <strong style="color: #e65100; font-size: 20px; text-transform: uppercase;">🍺 OBČERSTVENÍ ZAJIŠTĚNO 🍔</strong>
               </div>
               <p style="font-size: 16px; color: #555;">
-                V příloze tohoto e-mailu naleznete oficiální pozvánku. Přihlášky můžete podávat rovnou v našem závodním portálu.<br><br>
+                V příloze tohoto e-mailu naleznete oficiální pozvánku.<br>Přihlášky můžete podávat rovnou v našem závodním portálu.<br><br>
                 Těšíme se na vás!<br>
                 <em>Tým JK Sobotka</em>
               </p>
@@ -117,7 +121,7 @@ export default async function handler(req, res) {
         `,
         attachments: [
           {
-            filename: 'Pozvanka.pdf',
+            filename: 'Pozvanka_Humprecht.pdf',
             content: pdfBuffer,
             contentType: 'application/pdf'
           }
