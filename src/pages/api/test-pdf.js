@@ -30,10 +30,10 @@ export default async function handler(req, res) {
 
     firstPage.drawText(testName, {
       x: (width - nameWidth) / 2, 
-      y: height - 295, // Zlatá střední cesta! Mělo by to trefit střed vrchní cedule.
+      y: height - 295, // Naše perfektní souřadnice!
       size: nameSize, 
       font: font,
-      color: rgb(0.36, 0.25, 0.22), 
+      color: rgb(1, 1, 1), // OPRAVA: BÍLÁ BARVA PRO ČITELNOST NA DŘEVĚ
     });
 
     // 2. DATUM ZÁVODU 
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
       y: height - 410, 
       size: 18,
       font: font,
-      color: rgb(0.36, 0.25, 0.22), 
+      color: rgb(0, 0, 0), // OPRAVA: ČERNÁ BARVA PRO ČITELNOST NA OBLOZE
     });
 
     const pdfBytes = await pdfDoc.save();
