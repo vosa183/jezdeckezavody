@@ -14,28 +14,37 @@ export default async function handler(req, res) {
     const { width, height } = firstPage.getSize();
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const testName = "JARNÍ CENA JK SOBOTKA";
+    // Změnili jsme na schválně dlouhý text, abychom otestovali zmenšování!
+    const testName = "VELKÁ JARNÍ CENA JK SOBOTKA - WESTERNOVÝ SPECIÁL"; 
     const testDate = "Datum konání: 15. 5. 2026";
 
-    const nameWidth = font.widthOfTextAtSize(testName, 24);
-    const dateWidth = font.widthOfTextAtSize(testDate, 18);
+    // 1. NÁZEV ZÁVODU S CHYTROU ÚPRAVOU VELIKOSTI
+    let nameSize = 24; // Výchozí velikost písma
+    let nameWidth = font.widthOfTextAtSize(testName, nameSize);
+    const maxWidth = width - 120; // Necháme z každé strany 60 bodů okraj
 
-    // 1. NÁZEV ZÁVODU (Konečně do dřevěné cedule!)
+    // Pokud je text širší než náš limit, plynule ho zmenšujeme
+    while (nameWidth > maxWidth && nameSize > 10) {
+      nameSize -= 1;
+      nameWidth = font.widthOfTextAtSize(testName, nameSize);
+    }
+
     firstPage.drawText(testName, {
       x: (width - nameWidth) / 2, 
-      y: height - 275, // Zvětšený odečet = posun dolů do cedule
-      size: 24,
+      y: height - 320, // Velký skok dolů přímo do středu cedule
+      size: nameSize, // Zde se použije upravená velikost
       font: font,
-      color: rgb(0.36, 0.25, 0.22), // Westernová hnědá
+      color: rgb(0.36, 0.25, 0.22), 
     });
 
-    // 2. DATUM ZÁVODU (Pod stuhu do oblohy)
+    // 2. DATUM ZÁVODU (Tady jsme se minule trefili přesně, tak neměníme)
+    const dateWidth = font.widthOfTextAtSize(testDate, 18);
     firstPage.drawText(testDate, {
       x: (width - dateWidth) / 2, 
-      y: height - 410, // Kousek níž do volného prostoru
-      size: 18, // Zvětšeno z 16 na 18
+      y: height - 410, 
+      size: 18,
       font: font,
-      color: rgb(0.36, 0.25, 0.22), // Sjednocená barva
+      color: rgb(0.36, 0.25, 0.22), 
     });
 
     const pdfBytes = await pdfDoc.save();
