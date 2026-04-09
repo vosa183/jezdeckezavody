@@ -95,6 +95,11 @@ export default function Home() {
   // NOVÁ POLÍČKA PRO REGISTRACI A PDF
   const [riderAgeCategory, setRiderAgeCategory] = useState('18+');
   const [patternFile, setPatternFile] = useState(null);
+
+  // STAVY PRO INLINE EDITACI CENÍKU
+  const [editingPricingId, setEditingPricingId] = useState(null);
+  const [editDiscPrice, setEditDiscPrice] = useState('');
+  const [editPatternFile, setEditPatternFile] = useState(null);
   
   const [editMode, setEditMode] = useState(false);
   const [playerTab, setPlayerTab] = useState('main'); 
@@ -366,15 +371,33 @@ export default function Home() {
     }
   };
 
-  const handleEditPrice = async (id, oldPrice, discName) => {
-    const newPrice = prompt(`Zadejte novou cenu v Kč pro ${discName}:`, oldPrice);
-    if (newPrice !== null && newPrice !== "") {
-      const { error } = await supabase.from('pricing').update({ price: parseInt(newPrice) }).eq('id', id);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Změna ceny disciplíny', { discipline: discName, oldPrice, newPrice });
-        window.location.reload();
-      }
+  const startEditingPricing = (p) => {
+    setEditingPricingId(p.id);
+    setEditDiscPrice(p.price);
+    setEditPatternFile(null);
+  };
+
+  const handleSaveEditPricing = async (id, discName) => {
+    let patternUrl = null;
+    if (editPatternFile) {
+      const fileExt = editPatternFile.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('patterns').upload(fileName, editPatternFile);
+      if (uploadError) { alert('Chyba nahrávání: ' + uploadError.message); return; }
+      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
+      patternUrl = urlData.publicUrl;
+    }
+
+    const updateData = { price: parseInt(editDiscPrice) };
+    if (patternUrl) updateData.pattern_url = patternUrl;
+
+    const { error } = await supabase.from('pricing').update(updateData).eq('id', id);
+    if (error) alert(error.message);
+    else {
+      await logSystemAction('Změna disciplíny', { discipline: discName, newPrice: editDiscPrice });
+      alert('Disciplína úspěšně upravena!');
+      setEditingPricingId(null);
+      window.location.reload();
     }
   };
 
@@ -1031,18 +1054,35 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                           </thead>
                           <tbody>
                             {pricing.map(p => (
-                              <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
+                              <tr key={p.id} style={{borderBottom: '1px solid #eee', background: editingPricingId === p.id ? '#fff9c4' : 'transparent'}}>
                                 <td style={{padding: '10px'}}>{p.discipline_name}</td>
-                                <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
-                                <td style={{padding: '10px', textAlign: 'center'}}>
-                                  {p.pattern_url ? (
-                                    <a href={p.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0277bd'}}>Zobrazit</a>
-                                  ) : '-'}
-                                </td>
-                                <td style={{padding: '10px', textAlign: 'center'}}>
-                                  <button onClick={() => handleEditPrice(p.id, p.price, p.discipline_name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
-                                  <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Smazat</button>
-                                </td>
+                                {editingPricingId === p.id ? (
+                                  <>
+                                    <td style={{padding: '10px'}}>
+                                      <input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '70px'}} /> Kč
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <input type="file" accept=".pdf,image/*" onChange={e => setEditPatternFile(e.target.files[0])} style={{width: '130px', fontSize: '0.75rem'}} />
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <button onClick={() => handleSaveEditPricing(p.id, p.discipline_name)} style={{...styles.btnSave, padding: '5px 10px', marginRight: '5px'}}>Uložit</button>
+                                      <button onClick={() => setEditingPricingId(null)} style={{background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontWeight: 'bold'}}>Zrušit</button>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      {p.pattern_url ? (
+                                        <a href={p.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0277bd'}}>Zobrazit</a>
+                                      ) : '-'}
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <button onClick={() => startEditingPricing(p)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
+                                      <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Smazat</button>
+                                    </td>
+                                  </>
+                                )}
                               </tr>
                             ))}
                           </tbody>
