@@ -69,17 +69,6 @@ const getRulesForDiscipline = (disciplineName) => {
   return disciplineRuleHints.default;
 };
 
-// POMOCNÉ FUNKCE PRO DETEKCI KATEGORIÍ
-const isKidsDiscipline = (discName) => {
-  return /děti|deti|mládež|mladez|rooki|advanc/i.test(discName);
-};
-const isFoalDiscipline = (discName) => {
-  return /hříb|hrib/i.test(discName);
-};
-const isAdultDiscipline = (discName) => {
-  return !isKidsDiscipline(discName) && !isFoalDiscipline(discName);
-};
-
 export default function Home() {
   const [currentTab, setCurrentTab] = useState('app'); 
   
@@ -102,6 +91,10 @@ export default function Home() {
   const [newHorseName, setNewHorseName] = useState(''); 
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
   const [customRiderName, setCustomRiderName] = useState(''); 
+  
+  // NOVÁ POLÍČKA PRO REGISTRACI A PDF
+  const [riderAgeCategory, setRiderAgeCategory] = useState('18+');
+  const [patternFile, setPatternFile] = useState(null);
   
   const [editMode, setEditMode] = useState(false);
   const [playerTab, setPlayerTab] = useState('main'); 
@@ -225,7 +218,6 @@ export default function Home() {
     }
     setLoading(false);
   };
-
   const updateProfile = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
@@ -252,8 +244,23 @@ export default function Home() {
       generatedPassword += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     
-    alert(`SIMULACE ZALOŽENÍ ÚČTU:\nEmail: ${newAccountEmail}\nHeslo: ${generatedPassword}\nRole: ${newAccountRole}\n\n(V ostrém provozu se toto heslo automaticky odešle na zadaný e-mail.)`);
-    setNewAccountEmail('');
+    try {
+      const response = await fetch('/api/create-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newAccountEmail, password: generatedPassword, role: newAccountRole })
+      });
+      const data = await response.json();
+      if (data.success) {
+        await logSystemAction('Založen nový účet', { email: newAccountEmail, role: newAccountRole });
+        alert('Účet byl úspěšně vytvořen a heslo odesláno na e-mail!');
+        setNewAccountEmail('');
+      } else {
+        alert('Chyba: ' + data.error);
+      }
+    } catch (err) {
+      alert('Chyba komunikace se serverem.');
+    }
   };
 
   const handlePrint = (mode) => {
@@ -334,7 +341,23 @@ export default function Home() {
 
   const handleCreatePricing = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('pricing').insert([{ discipline_name: newDiscName, price: parseInt(newDiscPrice) }]);
+    let patternUrl = null;
+    
+    if (patternFile) {
+      const fileExt = patternFile.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const { data, error: uploadError } = await supabase.storage.from('patterns').upload(fileName, patternFile);
+      
+      if (uploadError) {
+        alert('Chyba při nahrávání souboru: ' + uploadError.message);
+        return;
+      }
+      
+      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
+      patternUrl = urlData.publicUrl;
+    }
+
+    const { error } = await supabase.from('pricing').insert([{ discipline_name: newDiscName, price: parseInt(newDiscPrice), pattern_url: patternUrl }]);
     if (error) alert(error.message);
     else { 
       await logSystemAction('Nová disciplína v ceníku', { discipline: newDiscName, price: newDiscPrice });
@@ -432,32 +455,18 @@ export default function Home() {
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
-  const uiHasKidsDisc = selectedDisciplines.some(d => isKidsDiscipline(d.discipline_name));
-  const uiHasAdultDisc = selectedDisciplines.some(d => isAdultDiscipline(d.discipline_name));
-  const mixWarning = uiHasKidsDisc && uiHasAdultDisc;
-
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
       return;
     }
 
-    if (mixWarning) {
-      alert("NELZE KOMBINOVAT! Z bezpečnostních důvodů nelze v jedné přihlášce kombinovat dětské a dospělé disciplíny. Prosím, odešlete je zvlášť.");
+    if (!selectedEvent || !selectedHorse || selectedDisciplines.length === 0 || !customRiderName.trim()) {
+      alert("Vyplňte prosím jméno jezdce, vyberte závod, koně a aspoň jednu disciplínu.");
       return;
     }
 
-    if (!selectedEvent || !selectedHorse || selectedDisciplines.length === 0) {
-      alert("Vyberte závod, koně a aspoň jednu disciplínu.");
-      return;
-    }
-
-    if (uiHasKidsDisc && !customRiderName.trim()) {
-      alert("Vyberte prosím juniorskou kategorii, proto nezapomeňte do modrého rámečku zapsat jméno dítěte, které závod pojede.");
-      return;
-    }
-
-    const finalRiderName = uiHasKidsDisc ? customRiderName.trim() : profile.full_name.trim();
+    const finalRiderName = customRiderName.trim();
 
     let finalHorseName = selectedHorse;
     if (selectedHorse === 'new') {
@@ -514,6 +523,7 @@ export default function Home() {
         user_id: user.id,
         event_id: selectedEvent,
         rider_name: finalRiderName,
+        age_category: riderAgeCategory,
         horse_name: finalHorseName,
         discipline: d.discipline_name,
         start_number: assignedNumber,
@@ -546,7 +556,6 @@ export default function Home() {
       }
     }
   };
-
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
@@ -743,8 +752,7 @@ export default function Home() {
       </div>
     );
   };
-
-  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
+if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
@@ -1000,10 +1008,14 @@ export default function Home() {
                     </div>
 
                     <div style={styles.adminSection}>
-                      <h4 style={{margin: '0 0 10px 0'}}>Ceník disciplín</h4>
+                      <h4 style={{margin: '0 0 10px 0'}}>Ceník disciplín + Nahrání úlohy (PDF/JPG)</h4>
                       <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
                         <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
                         <input type="number" placeholder="Cena" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+                          <label style={{fontSize: '0.85rem'}}>Úloha:</label>
+                          <input type="file" accept=".pdf,image/*" onChange={e => setPatternFile(e.target.files[0])} style={{...styles.inputSmall, width: 'auto'}} />
+                        </div>
                         <button type="submit" style={styles.btnSave}>Přidat</button>
                       </form>
 
@@ -1013,6 +1025,7 @@ export default function Home() {
                             <tr style={{textAlign: 'left'}}>
                               <th style={{padding: '10px'}}>Disciplína</th>
                               <th style={{padding: '10px', width: '80px'}}>Cena</th>
+                              <th style={{padding: '10px', width: '80px', textAlign: 'center'}}>Úloha</th>
                               <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
                             </tr>
                           </thead>
@@ -1021,6 +1034,11 @@ export default function Home() {
                               <tr key={p.id} style={{borderBottom: '1px solid #eee'}}>
                                 <td style={{padding: '10px'}}>{p.discipline_name}</td>
                                 <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                                <td style={{padding: '10px', textAlign: 'center'}}>
+                                  {p.pattern_url ? (
+                                    <a href={p.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0277bd'}}>Zobrazit</a>
+                                  ) : '-'}
+                                </td>
                                 <td style={{padding: '10px', textAlign: 'center'}}>
                                   <button onClick={() => handleEditPrice(p.id, p.price, p.discipline_name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
                                   <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Smazat</button>
@@ -1038,7 +1056,7 @@ export default function Home() {
                   <div className="no-print">
                     <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', margin: '20px 0'}}>
                       <h3 style={{color: '#e65100', marginTop: 0}}>Nové uživatelské přístupy</h3>
-                      <p>Zde můžete vytvořit účet pro Hlasatele nebo Rozhodčího. Zadaný e-mail pak využijte v nastavení pro odeslání přístupových údajů.</p>
+                      <p>Zde můžete vytvořit účet pro Hlasatele nebo Rozhodčího. Přístupy se odešlou na zadaný e-mail.</p>
                       <form onSubmit={handleCreateAccount} style={{display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '400px'}}>
                         <input type="email" placeholder="E-mailová adresa" value={newAccountEmail} onChange={e => setNewAccountEmail(e.target.value)} style={styles.inputSmall} required/>
                         <select value={newAccountRole} onChange={e => setNewAccountRole(e.target.value)} style={styles.inputSmall}>
@@ -1046,7 +1064,7 @@ export default function Home() {
                           <option value="speaker">Hlasatel (Speaker)</option>
                           <option value="admin">Administrátor</option>
                         </select>
-                        <button type="submit" style={{...styles.btnSave, background: '#e65100'}}>Vygenerovat heslo a přístup</button>
+                        <button type="submit" style={{...styles.btnSave, background: '#e65100'}}>Vygenerovat heslo a odeslat</button>
                       </form>
                     </div>
                   </div>
@@ -1417,6 +1435,17 @@ export default function Home() {
                   <div>
                     <h3 style={{marginTop: 0}}>Nová přihláška k závodu</h3>
                     
+                    <div style={{background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #0288d1', marginBottom: '15px'}}>
+                      <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Jméno a příjmení jezdce:</label>
+                      <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 15px 0'}} placeholder="Zadejte jméno jezdce" />
+                      
+                      <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Věková kategorie jezdce:</label>
+                      <select value={riderAgeCategory} onChange={e => setRiderAgeCategory(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}}>
+                        <option value="18+">18 a více let</option>
+                        <option value="<18">Méně než 18 let</option>
+                      </select>
+                    </div>
+
                     <label style={styles.label}>Vyberte závod:</label>
                     <select style={styles.input} value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
                       <option value="">-- Který závod pojedete? --</option>
@@ -1437,26 +1466,21 @@ export default function Home() {
                     {pricing.length === 0 ? <p style={{color: 'red'}}>Ceník prázdný.</p> : (
                       <div style={styles.disciplineList}>
                         {pricing.map(d => (
-                          <div key={d.id} onClick={() => {
-                            const exists = selectedDisciplines.find(x => x.id === d.id);
-                            setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
-                          }} style={{...styles.disciplineItem, background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#fff'}}>
-                            {d.discipline_name} <strong>{d.price} Kč</strong>
+                          <div key={d.id} style={{display: 'flex', flexDirection: 'column', borderBottom: '1px solid #eee', background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#fff'}}>
+                            <div onClick={() => {
+                              const exists = selectedDisciplines.find(x => x.id === d.id);
+                              setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
+                            }} style={{...styles.disciplineItem, borderBottom: 'none'}}>
+                              <span>{d.discipline_name}</span>
+                              <strong>{d.price} Kč</strong>
+                            </div>
+                            {d.pattern_url && (
+                              <div style={{padding: '0 12px 12px 12px'}}>
+                                <a href={d.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0288d1', fontSize: '0.85rem'}}>📄 Zobrazit úlohu k této disciplíně</a>
+                              </div>
+                            )}
                           </div>
                         ))}
-                      </div>
-                    )}
-
-                    {uiHasKidsDisc && (
-                      <div style={{background: '#e3f2fd', padding: '15px', borderRadius: '6px', border: '1px solid #0288d1', marginTop: '15px'}}>
-                        <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Jméno závodícího dítěte / mládežníka:</label>
-                        <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}} placeholder="Zadejte jméno dítěte" />
-                      </div>
-                    )}
-
-                    {mixWarning && (
-                      <div style={{background: '#ffebee', padding: '15px', borderRadius: '6px', border: '2px solid #d32f2f', color: '#d32f2f', fontWeight: 'bold', marginTop: '15px'}}>
-                        ⚠️ NELZE KOMBINOVAT! Nelze v jedné přihlášce míchat dětské a dospělé (např. Open) disciplíny. Pokud přihlašujete více dětí nebo sebe a dítě, musíte podat přihlášku za každého závodníka samostatně.
                       </div>
                     )}
                     
@@ -1464,11 +1488,7 @@ export default function Home() {
                       Celkem k platbě: {selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} Kč
                     </div>
 
-                    <button 
-                      onClick={handleRaceRegistration} 
-                      style={{...styles.btnSecondary, background: mixWarning ? '#ccc' : '#8d6e63', cursor: mixWarning ? 'not-allowed' : 'pointer'}}
-                      disabled={mixWarning}
-                    >
+                    <button onClick={handleRaceRegistration} style={styles.btnSecondary}>
                       ODESLAT PŘIHLÁŠKU
                     </button>
 
