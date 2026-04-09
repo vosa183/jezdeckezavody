@@ -11,7 +11,7 @@ export default async function handler(req, res) {
   const { eventName, eventDate, emails } = req.body;
 
   try {
-    // 1. VYTVOŘENÍ PDF NA MÍRU (S DOKONALÝMI BARVAMI A SOUŘADNICEMI)
+    // 1. VYTVOŘENÍ PDF NA MÍRU
     const filePath = path.join(process.cwd(), 'public', 'pozvanka.pdf');
     const existingPdfBytes = fs.readFileSync(filePath);
 
@@ -24,7 +24,6 @@ export default async function handler(req, res) {
 
     const eventDateString = `Datum konání: ${new Date(eventDate).toLocaleDateString('cs-CZ')}`;
 
-    // Chytré zmenšování názvu pro jistotu
     let nameSize = 24; 
     let nameWidth = font.widthOfTextAtSize(eventName, nameSize);
     const maxWidth = width - 120; 
@@ -34,7 +33,7 @@ export default async function handler(req, res) {
       nameWidth = font.widthOfTextAtSize(eventName, nameSize);
     }
 
-    // Nápis závodu (Sněhově bílá do cedule)
+    // Nápis závodu (bílá)
     firstPage.drawText(eventName, {
       x: (width - nameWidth) / 2, 
       y: height - 295, 
@@ -43,7 +42,7 @@ export default async function handler(req, res) {
       color: rgb(1, 1, 1), 
     });
 
-    // Datum závodu (Černá barva na oblohu)
+    // Datum závodu (černá)
     const dateWidth = font.widthOfTextAtSize(eventDateString, 18);
     firstPage.drawText(eventDateString, {
       x: (width - dateWidth) / 2, 
@@ -56,7 +55,7 @@ export default async function handler(req, res) {
     const pdfBytes = await pdfDoc.save();
     const pdfBuffer = Buffer.from(pdfBytes);
 
-    // 2. ODESLÁNÍ DO TELEGRAMU S NÁDHERNÝM TEXTEM
+    // 2. ODESLÁNÍ DO TELEGRAMU S KLIKACÍM ODKAZEM
     if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
       const formData = new FormData();
       formData.append('chat_id', process.env.TELEGRAM_CHAT_ID);
@@ -64,8 +63,8 @@ export default async function handler(req, res) {
       const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
       formData.append('document', blob, 'Pozvanka.pdf');
       
-      // Vymazlený text pro Telegram (podporuje HTML formátování)
-      const tgCaption = `🤠 <b>NOVÉ ZÁVODY VYPSÁNY!</b> 🤠\n\n🏆 <b>${eventName}</b>\n📅 <b>${eventDateString}</b>\n📍 Kolbiště pod zámkem Humprecht\n\n🍔 Občerstvení je plně zajištěno!\n\nPřihlášky jsou právě otevřeny v našem systému. Těšíme se na vás! 👇`;
+      // Text s odkazem na web
+      const tgCaption = `🤠 <b>NOVÉ ZÁVODY VYPSÁNY!</b> 🤠\n\n🏆 <b>${eventName}</b>\n📅 <b>${eventDateString}</b>\n📍 Kolbiště pod zámkem Humprecht\n\n🍔 Občerstvení je plně zajištěno!\n\n👉 <b>Přihlášky podávejte zde:</b> <a href="https://www.jezdeckezavody.cz">www.jezdeckezavody.cz</a>\n\nTěšíme se na vás! 👇`;
       
       formData.append('caption', tgCaption);
       formData.append('parse_mode', 'HTML');
@@ -76,7 +75,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. ODESLÁNÍ NA E-MAILY PŘES SEZNAM (jakmile nám ho schválí)
+    // 3. ODESLÁNÍ NA E-MAILY PŘES SEZNAM
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS && emails && emails.length > 0) {
       const transporter = nodemailer.createTransport({
         host: 'smtp.seznam.cz',
@@ -111,8 +110,11 @@ export default async function handler(req, res) {
               <div style="background: #ffe0b2; padding: 15px; border-radius: 6px; text-align: center; margin: 25px 0; border: 2px solid #e65100;">
                 <strong style="color: #e65100; font-size: 20px; text-transform: uppercase;">🍺 OBČERSTVENÍ ZAJIŠTĚNO 🍔</strong>
               </div>
+              <p style="font-size: 18px; margin-top: 30px;">
+                👉 <a href="https://www.jezdeckezavody.cz" style="color: #d32f2f; text-decoration: none; font-weight: bold;">Přihlásit se na závody můžete zde</a>
+              </p>
               <p style="font-size: 16px; color: #555;">
-                V příloze tohoto e-mailu naleznete oficiální pozvánku.<br>Přihlášky můžete podávat rovnou v našem závodním portálu.<br><br>
+                V příloze tohoto e-mailu naleznete oficiální pozvánku.<br><br>
                 Těšíme se na vás!<br>
                 <em>Tým JK Sobotka</em>
               </p>
