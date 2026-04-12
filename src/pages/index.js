@@ -7,7 +7,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// BEZPEČNÉ ODESÍLÁNÍ (TOKENY JSOU SCHOVANÉ NA SERVERU)
 const sendTelegramMessage = async (text) => {
   try {
     await fetch('/api/telegram', {
@@ -54,13 +53,14 @@ const disciplineRuleHints = {
     "Penalta 5: Spur stop (použití ostruhy před sedlem), držení se sedla, zjevná neposlušnost."
   ],
   showmanship: [
-    "POZOR: Tato disciplína (Showmanship/Horsemanship) se hodnotí od -3 (Extrémně špatné) do +3 (Excelentní)!",
+    "POZOR: Tato disciplína se hodnotí od -3 (Extrémně špatné) do +3 (Excelentní) pouze v CELÝCH BODECH!",
     "Penalizace: Malá = 3 b., Velká = 5 b., Závažná = 10 b.",
     "F&E (Celkový výkon a efektivita): Hodnocení 0 (průměr) až 5 (excelentní)."
   ]
 };
 
 const getRulesForDiscipline = (disciplineName) => {
+  if (!disciplineName) return disciplineRuleHints.default;
   const nameL = disciplineName.toLowerCase();
   if (nameL.includes('ranch') || nameL.includes('riding')) return disciplineRuleHints.ranch;
   if (nameL.includes('trail')) return disciplineRuleHints.trail;
@@ -77,7 +77,7 @@ export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [isResettingPassword, setIsResettingPassword] = useState(false); // STAV PRO RESET
+  const [isResettingPassword, setIsResettingPassword] = useState(false); 
   const [loading, setLoading] = useState(true);
   
   const [myHorses, setMyHorses] = useState([]);
@@ -87,24 +87,31 @@ export default function Home() {
   const [scoresheets, setScoresheets] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]); 
   
+  // REGISTRACE HRÁČE
   const [selectedEvent, setSelectedEvent] = useState('');
   const [selectedHorse, setSelectedHorse] = useState('');
   const [newHorseName, setNewHorseName] = useState(''); 
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
   const [customRiderName, setCustomRiderName] = useState(''); 
-  
-  // NOVÁ POLÍČKA PRO REGISTRACI A PDF
   const [riderAgeCategory, setRiderAgeCategory] = useState('18+');
+  
+  // OFFLINE REGISTRACE ADMINEM
+  const [offlineRiderName, setOfflineRiderName] = useState('');
+  const [offlineHorseName, setOfflineHorseName] = useState('');
+  const [offlineAgeCategory, setOfflineAgeCategory] = useState('18+');
+
   const [patternFile, setPatternFile] = useState(null);
 
   // STAVY PRO INLINE EDITACI CENÍKU
   const [editingPricingId, setEditingPricingId] = useState(null);
   const [editDiscPrice, setEditDiscPrice] = useState('');
   const [editPatternFile, setEditPatternFile] = useState(null);
+  const [editManeuvers, setEditManeuvers] = useState(''); // PRO EDITACI MANÉVRŮ V CENÍKU ADMINEM
   
   const [editMode, setEditMode] = useState(false);
   const [playerTab, setPlayerTab] = useState('main'); 
 
+  // VYTVÁŘENÍ ZÁVODŮ
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
@@ -114,25 +121,41 @@ export default function Home() {
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
   const [manualTgMessage, setManualTgMessage] = useState('');
 
+  // VYTVÁŘENÍ ÚČTŮ
   const [newAccountEmail, setNewAccountEmail] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('judge');
 
+  // ZAPISOVATEL (SCRIBE)
   const [judgeEvent, setJudgeEvent] = useState('');
   const [judgeDiscipline, setJudgeDiscipline] = useState('');
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
-  const [maneuverScores, setManeuverScores] = useState(Array(10).fill(0));
-  const [penaltyScores, setPenaltyScores] = useState(Array(10).fill(0));
+  const [maneuverScores, setManeuverScores] = useState(Array(10).fill('0')); // Měníme na string pro snazší zadávání z roletky
+  const [penaltyScores, setPenaltyScores] = useState(Array(10).fill('')); // Výchozí stav je prázdný řetězec, ne nula
+  const [judgeManeuversText, setJudgeManeuversText] = useState(''); // Text pro pojmenování manévrů zapisovatelem
+  const [actualJudgeName, setActualJudgeName] = useState(''); // Kdo je reálně rozhodčí
+
+  // NOTIFIKACE PRO SPÍKRA / ROZHODČÍHO
+  const [notifState, setNotifState] = useState({ speaker: null, judge: null });
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
-
+  
+  const playNotificationSound = () => {
+    try {
+      const audio = new Audio('/notification.mp3');
+      audio.play().catch(e => console.log('Přehrání zvuku bylo prohlížečem zablokováno.'));
+    } catch (e) {}
+  };
   useEffect(() => {
     checkUser();
+
     // ZACHYCENÍ RESETU HESLA Z URL
     if (typeof window !== 'undefined') {
       const hash = window.location.hash;
-      if (hash.includes('type=recovery')) {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (hash.includes('type=recovery') || urlParams.get('type') === 'recovery') {
         setIsResettingPassword(true);
+        setCurrentTab('app');
       }
     }
   }, []);
@@ -153,6 +176,23 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [profile]);
 
+  useEffect(() => {
+    const effectiveRole = simulatedRole || profile?.role || 'player';
+    const locked = events.find(e => e.is_locked);
+    if (locked) {
+      setNotifState(prev => {
+        const newState = { ...prev };
+        let play = false;
+        if (effectiveRole === 'speaker' && prev.speaker !== null && locked.speaker_message !== prev.speaker) play = true;
+        if (['judge', 'admin', 'superadmin'].includes(effectiveRole) && prev.judge !== null && locked.judge_message !== prev.judge) play = true;
+        if (play) playNotificationSound();
+        newState.speaker = locked.speaker_message;
+        newState.judge = locked.judge_message;
+        return newState;
+      });
+    }
+  }, [events, profile, simulatedRole]);
+
   const logSystemAction = async (actionDesc, detailData = {}) => {
     if (!user) return;
     await supabase.from('system_logs').insert([{
@@ -164,13 +204,13 @@ export default function Home() {
 
   async function checkUser() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUser(user);
-        const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setUser(authUser);
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
         
-        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', user.id);
+        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', authUser.id);
         setMyHorses(horses || []);
 
         const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
@@ -182,13 +222,11 @@ export default function Home() {
         if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge' || prof?.role === 'speaker') {
           const { data: regs } = await supabase.from('race_participants').select('*');
           setAllRegistrations(regs || []);
-
           const { data: scores } = await supabase.from('scoresheets').select('*');
           setScoresheets(scores || []);
         } else {
-          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', user.id);
+          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', authUser.id);
           setAllRegistrations(regs || []);
-
           const { data: scores } = await supabase.from('scoresheets').select('*');
           setScoresheets(scores || []);
         }
@@ -223,7 +261,10 @@ export default function Home() {
       }
     } else {
       const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message);
+      if (error) {
+        if (error.message.includes('Email not confirmed')) alert('Tento e-mail ještě nebyl ověřen.');
+        else alert(error.message);
+      }
       else {
         await supabase.from('system_logs').insert([{ user_id: data.user.id, action: 'Přihlášení', details: { email } }]);
         window.location.reload();
@@ -239,7 +280,7 @@ export default function Home() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) alert(error.message);
       else {
-        alert('Heslo bylo úspěšně změněno! Nyní se můžete přihlásit.');
+        alert('Heslo bylo úspěšně změněno!');
         setIsResettingPassword(false);
         window.location.hash = ''; 
       }
@@ -252,440 +293,153 @@ export default function Home() {
     }
     setLoading(false);
   };
+  useEffect(() => {
+    checkUser();
 
-  const updateProfile = async (e) => {
-    e.preventDefault();
-    const { error } = await supabase.from('profiles').update({
-      full_name: profile.full_name,
-      email: profile.email || user.email,
-      phone: profile.phone,
-      stable: profile.stable,
-      city: profile.city
-    }).eq('id', user.id);
-    
-    if (error) alert(error.message);
-    else { 
-      await logSystemAction('Úprava profilu', { name: profile.full_name });
-      alert('Profil uložen!'); 
-      setEditMode(false); 
+    // ZACHYCENÍ RESETU HESLA Z URL
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      const urlParams = new URLSearchParams(window.location.search);
+      if (hash.includes('type=recovery') || urlParams.get('type') === 'recovery') {
+        setIsResettingPassword(true);
+        setCurrentTab('app');
+      }
     }
-  };
+  }, []);
 
-  const handleCreateAccount = async (e) => {
-    e.preventDefault();
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%";
-    let generatedPassword = "";
-    for (let i = 0; i < 12; i++) {
-      generatedPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    
-    try {
-      const response = await fetch('/api/create-account', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: newAccountEmail, password: generatedPassword, role: newAccountRole })
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
+      if (evts) setEvents(evts);
+
+      if (profile?.role === 'admin' || profile?.role === 'superadmin' || profile?.role === 'judge' || profile?.role === 'speaker') {
+        const { data: regs } = await supabase.from('race_participants').select('*');
+        if (regs) setAllRegistrations(regs);
+
+        const { data: scores } = await supabase.from('scoresheets').select('*');
+        if (scores) setScoresheets(scores);
+      }
+    }, 5000); 
+    return () => clearInterval(interval);
+  }, [profile]);
+
+  useEffect(() => {
+    const effectiveRole = simulatedRole || profile?.role || 'player';
+    const locked = events.find(e => e.is_locked);
+    if (locked) {
+      setNotifState(prev => {
+        const newState = { ...prev };
+        let play = false;
+        if (effectiveRole === 'speaker' && prev.speaker !== null && locked.speaker_message !== prev.speaker) play = true;
+        if (['judge', 'admin', 'superadmin'].includes(effectiveRole) && prev.judge !== null && locked.judge_message !== prev.judge) play = true;
+        if (play) playNotificationSound();
+        newState.speaker = locked.speaker_message;
+        newState.judge = locked.judge_message;
+        return newState;
       });
-      const data = await response.json();
-      if (data.success) {
-        await logSystemAction('Založen nový účet', { email: newAccountEmail, role: newAccountRole });
-        alert('Účet byl úspěšně vytvořen a heslo odesláno na e-mail!');
-        setNewAccountEmail('');
-      } else {
-        alert('Chyba: ' + data.error);
-      }
-    } catch (err) {
-      alert('Chyba komunikace se serverem.');
     }
-  };
+  }, [events, profile, simulatedRole]);
 
-  const handlePrint = (mode) => {
-    setPrintMode(mode);
-    setTimeout(() => {
-      window.print();
-      setPrintMode('');
-    }, 500); 
-  };
-
-  const handleUpdateSpeakerMessage = async (eventId, currentMessage) => {
-    const msg = prompt("Zadejte rychlý vzkaz POUZE pro hlasatele. Smazáním textu vzkaz zrušíte:", currentMessage || "");
-    if (msg !== null) {
-      const { error } = await supabase.from('events').update({ speaker_message: msg }).eq('id', eventId);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Změna interní zprávy pro Spíkra', { msg });
-        checkUser(); 
-      }
-    }
-  };
-
-  const handleCreateEvent = async (e) => {
-    e.preventDefault();
-    const { error } = await supabase.from('events').insert([{ 
-      name: newEventName, 
-      event_date: newEventDate, 
-      start_num_from: parseInt(newStartNumFrom),
-      start_num_to: parseInt(newStartNumTo)
+  const logSystemAction = async (actionDesc, detailData = {}) => {
+    if (!user) return;
+    await supabase.from('system_logs').insert([{
+      user_id: user.id,
+      action: actionDesc,
+      details: detailData
     }]);
-    
-    if (error) {
-      alert(error.message);
-    } else { 
-      await logSystemAction('Vypsán nový závod', { name: newEventName, from: newStartNumFrom, to: newStartNumTo });
-      
-      const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n` +
-                    `🏆 <b>Název:</b> ${newEventName}\n` +
-                    `📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\n` +
-                    `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
-      await sendTelegramMessage(tgMsg);
-
-      try {
-        const { data: profs } = await supabase.from('profiles').select('email').not('email', 'is', null);
-        if (profs && profs.length > 0) {
-          const allEmails = profs.map(p => p.email).filter(e => e.includes('@'));
-          if (allEmails.length > 0) {
-            await fetch('/api/send-invites', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                eventName: newEventName,
-                eventDate: newEventDate,
-                emails: allEmails
-              })
-            });
-          }
-        }
-      } catch (mailErr) {
-        console.error('Chyba při volání mailového můstku:', mailErr);
-      }
-
-      alert('Závod vytvořen a oznámení odesláno do Telegramu a e-mailem všem jezdcům!'); 
-      window.location.reload(); 
-    }
   };
 
-  const toggleEventLock = async (id, currentLocked, eventName) => {
-    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu a hlasateli?')) {
-      const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction(currentLocked ? 'Odemčen závod' : 'Uzamčen závod', { event: eventName });
-        window.location.reload();
-      }
-    }
-  };
-
-  const handleCreatePricing = async (e) => {
-    e.preventDefault();
-    let patternUrl = null;
-    
-    if (patternFile) {
-      const fileExt = patternFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { data, error: uploadError } = await supabase.storage.from('patterns').upload(fileName, patternFile);
-      
-      if (uploadError) {
-        alert('Chyba při nahrávání souboru: ' + uploadError.message);
-        return;
-      }
-      
-      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-      patternUrl = urlData.publicUrl;
-    }
-
-    const { error } = await supabase.from('pricing').insert([{ discipline_name: newDiscName, price: parseInt(newDiscPrice), pattern_url: patternUrl }]);
-    if (error) alert(error.message);
-    else { 
-      await logSystemAction('Nová disciplína v ceníku', { discipline: newDiscName, price: newDiscPrice });
-      alert('Disciplína přidána do ceníku!'); 
-      window.location.reload(); 
-    }
-  };
-
-  const startEditingPricing = (p) => {
-    setEditingPricingId(p.id);
-    setEditDiscPrice(p.price);
-    setEditPatternFile(null);
-  };
-
-  const handleSaveEditPricing = async (id, discName) => {
-    let patternUrl = null;
-    if (editPatternFile) {
-      const fileExt = editPatternFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('patterns').upload(fileName, editPatternFile);
-      if (uploadError) { alert('Chyba nahrávání: ' + uploadError.message); return; }
-      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-      patternUrl = urlData.publicUrl;
-    }
-
-    const updateData = { price: parseInt(editDiscPrice) };
-    if (patternUrl) updateData.pattern_url = patternUrl;
-
-    const { error } = await supabase.from('pricing').update(updateData).eq('id', id);
-    if (error) alert(error.message);
-    else {
-      await logSystemAction('Změna disciplíny', { discipline: discName, newPrice: editDiscPrice });
-      alert('Disciplína úspěšně upravena!');
-      setEditingPricingId(null);
-      window.location.reload();
-    }
-  };
-
-  const handleDeletePricing = async (id, discName) => {
-    if (confirm(`Opravdu chcete smazat disciplínu ${discName} z ceníku?`)) {
-      const { error } = await supabase.from('pricing').delete().eq('id', id);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Smazána disciplína z ceníku', { discipline: discName });
-        window.location.reload();
-      }
-    }
-  };
-
-  const updatePaymentNote = async (id, note, riderName) => {
-    await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
-    await logSystemAction('Úprava poznámky k platbě', { rider: riderName, note });
-    alert('Poznámka k platbě uložena!');
-  };
-
-  const handleUpdateSchedule = async (eventId, currentSchedule) => {
-    const msg = prompt("Zadejte textový plán závodů. Tento plán se ukáže všem a odešle se jako informační zpráva na Telegram:", currentSchedule || "");
-    if (msg !== null) {
-      const { error } = await supabase.from('events').update({ schedule: msg }).eq('id', eventId);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Změna plánu závodů', { schedule: msg });
-        if (msg.trim() !== '') {
-          await sendTelegramMessage(`📅 <b>AKTUÁLNÍ PLÁN ZÁVODŮ:</b>\n\n${msg}`);
-        }
-        alert('Plán byl uložen a úspěšně odeslán na komunikační kanál!');
-        checkUser();
-      }
-    }
-  };
-
-  const sendManualTgMessage = async () => {
-    if(!manualTgMessage) return;
-    await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
-    alert('Odesláno na Telegram!');
-    setManualTgMessage('');
-  };
-
-  const handleEndCompetitionAndSendResults = async (eventId) => {
-    if(!confirm("Opravdu chcete slavnostně ukončit závody a odeslat kompletní výsledky?")) return;
-
-    const eventObj = events.find(e => e.id === eventId);
-    let tgMsg = `🏆 <b>ZÁVODY UKONČENY - CELKOVÉ VÝSLEDKY</b> 🏆\n\n<b>${eventObj.name}</b>\n\n`;
-
-    const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
-
-    disciplines.forEach(disc => {
-      const ridersInDisc = allRegistrations.filter(r => r.event_id === eventId && r.discipline === disc);
-      const scoredRiders = ridersInDisc
-        .map(r => {
-          const sObj = scoresheets.find(s => s.participant_id === r.id);
-          return { ...r, totalScore: sObj ? sObj.total_score : -999 };
-        })
-        .filter(r => r.totalScore !== -999)
-        .sort((a, b) => b.totalScore - a.totalScore); 
-
-      if(scoredRiders.length > 0) {
-        tgMsg += `📍 <b>${disc}</b>\n`;
-        scoredRiders.forEach((r, index) => {
-          let medal = '🏅';
-          if(index === 0) medal = '🥇';
-          if(index === 1) medal = '🥈';
-          if(index === 2) medal = '🥉';
-          tgMsg += `${medal} ${index + 1}. ${r.rider_name} (${r.horse_name}) - <b>${r.totalScore} b.</b>\n`;
-        });
-        tgMsg += `\n`;
-      }
-    });
-
-    tgMsg += `Děkujeme všem jezdcům a gratulujeme vítězům! 🎉 Pokud máte zájem o originální zapsané archy s podpisem rozhodčího, naleznete je v naší skupině.`;
-
-    await sendTelegramMessage(tgMsg);
-    alert('Závody byly ukončeny a výsledková listina odeslána!');
-  };
-
-  const handleRaceRegistration = async () => {
-    if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
-      alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
-      return;
-    }
-
-    if (!selectedEvent || !selectedHorse || selectedDisciplines.length === 0 || !customRiderName.trim()) {
-      alert("Vyplňte prosím jméno jezdce, vyberte závod, koně a aspoň jednu disciplínu.");
-      return;
-    }
-
-    const finalRiderName = customRiderName.trim();
-
-    let finalHorseName = selectedHorse;
-    if (selectedHorse === 'new') {
-      if (!newHorseName.trim()) {
-        alert("Napište jméno nového koně!");
-        return;
-      }
-      const { data: newHorse, error: horseErr } = await supabase.from('horses')
-        .insert([{ owner_id: user.id, name: newHorseName.trim() }])
-        .select().single();
-      if (horseErr) return alert("Chyba při ukládání koně: " + horseErr.message);
-      finalHorseName = newHorse.name;
-    }
-
-    const selectedEventObj = events.find(e => e.id === selectedEvent);
-    const fromNum = selectedEventObj?.start_num_from || 1;
-    const toNum = selectedEventObj?.start_num_to || 200;
-    const capacity = toNum - fromNum + 1;
-
-    const { data: freshRegs } = await supabase.from('race_participants')
-        .select('start_number, rider_name, horse_name')
-        .eq('event_id', selectedEvent);
-    
-    const existingMatch = freshRegs?.find(r => 
-        r.rider_name?.trim().toLowerCase() === finalRiderName.toLowerCase() &&
-        r.horse_name?.trim().toLowerCase() === finalHorseName.toLowerCase()
-    );
-
-    let assignedNumber;
-    if (existingMatch) {
-      assignedNumber = existingMatch.start_number; 
-    } else {
-      const takenNumbers = freshRegs?.map(t => t.start_number) || [];
-      const available = Array.from({ length: capacity }, (_, i) => i + fromNum).filter(n => !takenNumbers.includes(n));
-
-      if (available.length === 0) {
-        alert("Kapacita čísel pro tento závod je vyčerpána!");
-        return;
-      }
-      assignedNumber = available[Math.floor(Math.random() * available.length)];
-    }
-
-    const registrationData = await Promise.all(selectedDisciplines.map(async (d) => {
-      const { data: takenDraws } = await supabase.from('race_participants')
-        .select('draw_order')
-        .eq('event_id', selectedEvent)
-        .eq('discipline', d.discipline_name);
+  async function checkUser() {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setUser(authUser);
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
+        setProfile(prof);
         
-      const takenDrawOrders = takenDraws?.map(t => t.draw_order) || [];
-      const availableDraws = Array.from({ length: capacity }, (_, i) => i + 1).filter(n => !takenDrawOrders.includes(n));
-      const assignedDraw = availableDraws[Math.floor(Math.random() * availableDraws.length)];
+        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', authUser.id);
+        setMyHorses(horses || []);
 
-      return {
-        user_id: user.id,
-        event_id: selectedEvent,
-        rider_name: finalRiderName,
-        age_category: riderAgeCategory,
-        horse_name: finalHorseName,
-        discipline: d.discipline_name,
-        start_number: assignedNumber,
-        draw_order: assignedDraw,
-        price: d.price,
-        is_paid: false,
-        payment_note: ''
-      };
-    }));
+        const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
+        setEvents(evts || []);
 
-    const { error } = await supabase.from('race_participants').insert(registrationData);
-    if (error) alert(error.message);
-    else {
-      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: finalRiderName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
-      alert(`Přihláška odeslána! Startovní číslo: ${assignedNumber}. Závodník: ${finalRiderName}`);
-      setCustomRiderName('');
-      setSelectedDisciplines([]);
-      window.location.reload();
+        const { data: prices } = await supabase.from('pricing').select('*').order('id');
+        setPricing(prices || []);
+
+        if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge' || prof?.role === 'speaker') {
+          const { data: regs } = await supabase.from('race_participants').select('*');
+          setAllRegistrations(regs || []);
+          const { data: scores } = await supabase.from('scoresheets').select('*');
+          setScoresheets(scores || []);
+        } else {
+          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', authUser.id);
+          setAllRegistrations(regs || []);
+          const { data: scores } = await supabase.from('scoresheets').select('*');
+          setScoresheets(scores || []);
+        }
+
+        if (prof?.role === 'superadmin') {
+          const { data: logs } = await supabase.from('system_logs').select('*').order('created_at', { ascending: false }).limit(50);
+          setSystemLogs(logs || []);
+        }
+      }
+    } finally {
+      setLoading(false);
     }
+  }
+
+  const handleSignOut = async () => {
+    await logSystemAction('Odhlášení uživatele');
+    await supabase.auth.signOut();
+    window.location.reload();
   };
 
-  const handleCancelRegistration = async (id) => {
-    if (confirm("Opravdu chcete zrušit tuto přihlášku? Startovní číslo se uvolní pro ostatní.")) {
-      const { error } = await supabase.from('race_participants').delete().eq('id', id);
-      if (error) alert(error.message);
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    if (isSignUp) {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        alert(error.message);
+      } else if (data?.user) {
+        await supabase.from('profiles').insert([{ id: data.user.id, email: email }]);
+        alert('Registrace úspěšná! Můžete vstoupit.');
+        window.location.reload();
+      }
+    } else {
+      const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        if (error.message.includes('Email not confirmed')) alert('Tento e-mail ještě nebyl ověřen.');
+        else alert(error.message);
+      }
       else {
-        await logSystemAction('Hráč zrušil přihlášku', { registration_id: id });
-        alert('Přihláška byla zrušena.');
+        await supabase.from('system_logs').insert([{ user_id: data.user.id, action: 'Přihlášení', details: { email } }]);
         window.location.reload();
       }
     }
+    setLoading(false);
   };
 
-  const handleJudgeDisciplineChange = async (eventId, discName) => {
-    setJudgeDiscipline(discName);
-    await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
-  };
-
-  const announceDisciplineEnd = async (discName) => {
-    if(confirm(`Oznámit konec disciplíny ${discName}?`)){
-        await sendTelegramMessage(`🏁 <b>DISCIPLÍNA UZAVŘENA</b>\n\nPrávě bylo dokončeno hodnocení disciplíny <b>${discName}</b>. Kompletní výsledky budou k dispozici po ukončení závodů. Děkujeme jezdcům!`);
-        alert('Odesláno!');
-    }
-  };
-
-  const openScoresheet = (participant) => {
-    setEvaluatingParticipant(participant);
-    
-    const existingScore = scoresheets.find(s => s.participant_id === participant.id);
-    if (existingScore) {
-      setManeuverScores(existingScore.score_data.maneuvers || Array(10).fill(0));
-      setPenaltyScores(existingScore.score_data.penalties || Array(10).fill(0));
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    if (isResettingPassword) {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) alert(error.message);
+      else {
+        alert('Heslo bylo úspěšně změněno!');
+        setIsResettingPassword(false);
+        window.location.hash = ''; 
+      }
     } else {
-      setManeuverScores(Array(10).fill(0));
-      setPenaltyScores(Array(10).fill(0));
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) alert(error.message);
+      else alert('Odkaz pro obnovu hesla byl odeslán na Váš e-mail.');
     }
+    setLoading(false);
   };
-
-  const handleManeuverChange = (index, value) => {
-    const newScores = [...maneuverScores];
-    newScores[index] = parseFloat(value);
-    setManeuverScores(newScores);
-  };
-
-  const handlePenaltyChange = (index, value) => {
-    const newPenalties = [...penaltyScores];
-    newPenalties[index] = parseFloat(value) || 0;
-    setPenaltyScores(newPenalties);
-  };
-
-  const calculateTotalScore = () => {
-    const baseScore = 70;
-    const maneuversTotal = maneuverScores.reduce((acc, val) => acc + val, 0);
-    const penaltiesTotal = penaltyScores.reduce((acc, val) => acc + val, 0);
-    return baseScore + maneuversTotal - penaltiesTotal;
-  };
-
-  const saveScore = async () => {
-    const total = calculateTotalScore();
-    const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
-    
-    const timestamp = new Date().toISOString();
-    const judgeName = profile?.full_name || 'Neznámý rozhodčí';
-    
-    const dataToSign = `${evaluatingParticipant.id}-${judgeName}-${timestamp}-${total}-${JSON.stringify(scoreData)}`;
-    const hash = await generateHash(dataToSign);
-
-    await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
-
-    const { error } = await supabase.from('scoresheets').insert({
-      participant_id: evaluatingParticipant.id,
-      judge_id: user.id,
-      judge_name: judgeName,
-      scored_at: timestamp,
-      signature_hash: hash,
-      score_data: scoreData,
-      total_score: total
-    });
-
-    if (error) {
-      alert('Chyba při ukládání: ' + error.message);
-    } else {
-      await logSystemAction('Uloženo hodnocení vč. digitálního podpisu', { rider: evaluatingParticipant.rider_name, total, hash });
-      alert('Hodnocení bylo úspěšně uloženo a podepsáno!');
-      setEvaluatingParticipant(null);
-      checkUser(); 
-    }
-  };
-
   const renderPrintableScoresheets = (eventId) => {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
@@ -709,10 +463,6 @@ export default function Home() {
                 <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid black', paddingBottom: '10px' }}>
                   <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.5rem' }}>{eventObj.name}</h2>
                   <h3 style={{ margin: '5px 0 0 0', color: '#444' }}>SCORESHEET: {discipline}</h3>
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
-                    <strong style={{fontSize: '1.1rem'}}>Úloha (Pattern):</strong>
-                    <input type="text" className="print-input" placeholder="Zadejte název úlohy" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent', textAlign: 'center' }} />
-                  </div>
                 </div>
                 
                 <table className="wrc-scoresheet" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.95rem' }}>
@@ -728,18 +478,20 @@ export default function Home() {
                     </tr>
                     <tr>
                       {[1,2,3,4,5,6,7,8,9,10].map(m => (
-                        <th key={m} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5' }}>{m}</th>
+                        <th key={m} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5' }}>
+                          {pricing.find(p => p.discipline_name === discipline)?.maneuver_names?.split(',')[m-1]?.trim() || m}
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {ridersInDiscipline.map(r => {
                       const scoreObj = scoresheets.find(s => s.participant_id === r.id);
-                      const pTotal = scoreObj ? scoreObj.score_data.penalties.reduce((a,b)=>a+b,0) : '';
+                      const pTotal = scoreObj ? scoreObj.score_data.penalties.reduce((a,b)=>a+(parseFloat(b)||0),0) : '';
                       return (
                         <React.Fragment key={r.id}>
                           <tr>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{r.draw_order}</td>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}></td>
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.2rem' }}>{r.start_number}</td>
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', borderRight: '1px solid black' }}>
                               <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{r.rider_name}</div>
@@ -748,7 +500,7 @@ export default function Home() {
                             <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>PENALTY</td>
                             {[0,1,2,3,4,5,6,7,8,9].map(i => (
                               <td key={`p-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', color: 'red', fontWeight: 'bold', height: '25px' }}>
-                                {scoreObj && scoreObj.score_data.penalties[i] > 0 ? `-${scoreObj.score_data.penalties[i]}` : ''}
+                                {scoreObj && parseFloat(scoreObj.score_data.penalties[i]) > 0 ? `-${scoreObj.score_data.penalties[i]}` : ''}
                               </td>
                             ))}
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', color: 'red', fontWeight: 'bold', fontSize: '1.1rem' }}>
@@ -760,11 +512,14 @@ export default function Home() {
                           </tr>
                           <tr>
                             <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>SCORE</td>
-                            {[0,1,2,3,4,5,6,7,8,9].map(i => (
-                              <td key={`s-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', height: '25px' }}>
-                                {scoreObj && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj ? '0' : '')}
-                              </td>
-                            ))}
+                            {[0,1,2,3,4,5,6,7,8,9].map(i => {
+                               const val = scoreObj ? parseFloat(scoreObj.score_data.maneuvers[i]) : 0;
+                               return (
+                                <td key={`s-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', height: '25px' }}>
+                                  {scoreObj && val !== 0 ? (val > 0 ? `+${val}` : val) : (scoreObj ? '0' : '')}
+                                </td>
+                               );
+                            })}
                           </tr>
                         </React.Fragment>
                       )
@@ -830,85 +585,9 @@ export default function Home() {
         
         <div className="no-print" style={styles.card}>
           <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>WESTERNOVÉ HOBBY ZÁVODY POD HUMPRECHTEM</h2>
-          <h3 style={{color: '#8d6e63', textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '20px', marginBottom: '30px'}}>PROPOZICE</h3>
-
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px', fontSize: '1.1rem'}}>
-            <div>
-              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
-                <li style={{marginBottom: '10px'}}><strong>Pořadatel:</strong> JK Sobotka – Pavla Koklesová</li>
-                <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> Uveden v názvu závodu</li>
-                <li style={{marginBottom: '10px'}}><strong>Rozhodčí:</strong> Pavla Doubravová</li>
-                <li style={{marginBottom: '10px'}}><strong>Ředitel akce:</strong> Pavla Koklesová</li>
-                <li style={{marginBottom: '10px'}}><strong>Sekretář závodů:</strong> Leona Plocková (plockovaleona@seznam.cz)</li>
-              </ul>
-            </div>
-            <div>
-              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
-                <li style={{marginBottom: '10px'}}><strong>Místo konání:</strong> Sobotka – kolbiště a jízdárna pod Humprechtem<br/>(Adresa: Pod Humprechtem 507 43)</li>
-                <li style={{marginBottom: '10px'}}><strong>Zdravotní služba:</strong> Červený kříž</li>
-                <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 36h. před zahajením</li>
-                <li style={{marginBottom: '10px'}}><strong>Kontakty:</strong> 721 456 049, 702 165 991</li>
-              </ul>
-            </div>
+          <div style={{whiteSpace: 'pre-wrap', fontSize: '1.1rem', marginTop: '20px', lineHeight: '1.6'}}>
+            {events.find(e => e.id === adminSelectedEvent)?.event_propositions || "Propozice nebyly zatím nahrány."}
           </div>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Informace o akci a Poplatky</h4>
-          <p style={{fontSize: '1.1rem'}}>Sledujte naše oficiální informační kanály na internetu a událost Westernové hobby závody pod Humprechtem.</p>
-          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
-            <li><strong>300 Kč</strong> (kategorie Open, Hříbata)</li>
-            <li><strong>250 Kč</strong> (kategorie Mládež, Děti)</li>
-          </ul>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Časový plán</h4>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Veterinární přejímka bude probíhat od <strong>8:00 do 9:00</strong>. Předpokládaný čas zahájení akce je cca <strong>9:00</strong>. Čas je pouze orientační a může se změnit.</p>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Veterinární podmínky</h4>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Kůň musí být v imunitě proti influenze (chřipce) koní. Kůň starší 12 měsíců musí být laboratorně vyšetřen s negativním výsledkem na infekční anemii, vyšetření nesmí být starší 12 měsíců. Soutěžící jsou povinni řídit se Řádem ochrany koní při veřejném vystoupení a svodu koní.</p>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Všeobecné podmínky</h4>
-          <p style={{fontSize: '1.1rem'}}>Za bezpečnost nezletilého odpovídá rodič nebo jím pověřená osoba. Pokud jezdec koně dostatečně neovládá, a omezuje či ohrožuje ostatní účastníky, má pořadatel (prostřednictvím ředitele akce nebo pořadatele) právo je vyloučit bez nároku na vrácení startovného.</p>
-          <p style={{fontSize: '1.1rem'}}>Pořadatel si vyhrazuje právo neumožnit účast v soutěžním prostoru koním, kteří nejsou ve vhodném zdravotním či výživovém stavu, nebo mají nevhodně padnoucí či poškozenou výstroj, a to v zájmu zajištění welfare zvířat.</p>
-          <p style={{fontSize: '1.1rem'}}>V případě, že jezdec/vodič nedokáže dostatečně ovládat koně a tím například omezuje nebo ohrožuje ostatní účastníky – ať už v soutěžním prostoru nebo na opracovišti – má pořadatel (prostřednictvím ředitele závodů, stevarda nebo jiné odpovědné osoby) právo takového účastníka vyloučit bez nároku na vrácení startovného.</p>
-          <p style={{fontSize: '1.1rem'}}>Žádáme tímto rodiče, trenéry i jezdce, aby zvážili své schopnosti a připravenost koně i jezdce, a předešli tak situacím, které by mohly ohrozit bezpečný a férový průběh závodů.</p>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Pořadatel neručí za případné úrazy koní a jezdců, za ztráty předmětů a jejich poškození. <strong>Není potřeba vlastnit licenci nebo být členem asociace.</strong></p>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>DISCIPLÍNY</h4>
-          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
-            <li>Showmanship at Halter (open, mládež, děti, hříbata)</li>
-            <li>Western Horsemanship (open, mládež, děti)</li>
-            <li>Ranch Rail Pleasure (open, mládež)</li>
-            <li>Ranch Riding (open, mládež)</li>
-            <li>Ranch Trail (open, mládež)</li>
-            <li>In-Hand Trail (open, mládež, děti, hříbata)</li>
-            <li>Trail (open, mládež, děti)</li>
-            <li>Kovbojská stezka - může se předvést ze sedla i ze země (děti, mládež, hříbata, open)</li>
-          </ul>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Kategorie</h4>
-          <ol style={{marginBottom: '20px', fontSize: '1.1rem'}}>
-            <li style={{marginBottom: '10px'}}><strong>Open</strong> – otevřená kategorie pro všechny. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
-            <li style={{marginBottom: '10px'}}><strong>Mládež</strong> – rozdělena na:
-              <ul>
-                <li><em>Začátečníci (Rookies):</em> do 14 let včetně (chody krok, klus - možnost individuálního posouzení).</li>
-                <li><em>Pokročilí (Advanced):</em> do 18 let včetně. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
-              </ul>
-            </li>
-            <li style={{marginBottom: '10px'}}><strong>Děti</strong> – do 12 let včetně – s vodičem nebo bez vodiče.</li>
-            <li style={{marginBottom: '10px'}}><strong>Hříbata</strong> – do 3 let včetně.</li>
-          </ol>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Výstroj</h4>
-          <p style={{fontSize: '1.1rem'}}><strong>Kůň:</strong></p>
-          <ul style={{fontSize: '1.1rem'}}>
-            <li>Výstroj může být anglická i westernová.</li>
-            <li>V rančovních disciplínách je povoleno bezudidlové vedení.</li>
-            <li>Je povoleno i obouruční vedení na pákovém udidle.</li>
-          </ul>
-          <p style={{marginTop: '10px', fontSize: '1.1rem'}}><strong>Jezdec:</strong></p>
-          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
-            <li>Westernový klobouk či přilba, košile s dlouhým rukávem, dlouhé kalhoty.</li>
-            <li><strong>Pro kategorie mládež a děti je bezpečnostní přilba povinná.</strong></li>
-          </ul>
         </div>
       </div>
     );
@@ -944,7 +623,7 @@ export default function Home() {
           )}
           <button onClick={() => setSimulatedRole('admin')} style={effectiveRole === 'admin' ? styles.activeTab : styles.tab}>Admin Pohled</button>
           {profile?.role === 'superadmin' && (
-            <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Rozhodčí Pohled</button>
+            <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Zapisovatel Pohled</button>
           )}
           {profile?.role === 'superadmin' && (
             <button onClick={() => setSimulatedRole('speaker')} style={effectiveRole === 'speaker' ? styles.activeTab : styles.tab}>Spíkr</button>
@@ -979,6 +658,19 @@ export default function Home() {
               {isResettingPassword ? 'Zpět na přihlášení' : 'Zapomněli jste heslo? Klikněte zde.'}
             </button>
           )}
+          
+          <div style={{marginTop: '40px', borderTop: '1px solid #ddd', paddingTop: '20px'}}>
+             <h3 style={{textAlign: 'center', color: '#5d4037'}}>Dostupné disciplíny</h3>
+             {pricing.length === 0 ? <p style={{textAlign: 'center'}}>Ceník se připravuje...</p> : (
+               <div style={{display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center'}}>
+                 {pricing.map(p => (
+                   <span key={p.id} style={{background: '#f4ece4', padding: '8px 15px', borderRadius: '20px', fontSize: '0.9rem', color: '#5d4037', border: '1px solid #d7ccc8'}}>
+                     {p.discipline_name}
+                   </span>
+                 ))}
+               </div>
+             )}
+          </div>
         </div>
       ) : (
         <div style={styles.mainGrid}>
@@ -1007,8 +699,7 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          <div className="print-area" style={styles.card}>
+<div className="print-area" style={styles.card}>
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
                 <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
@@ -1072,14 +763,10 @@ export default function Home() {
                     </div>
 
                     <div style={styles.adminSection}>
-                      <h4 style={{margin: '0 0 10px 0'}}>Ceník disciplín + Nahrání úlohy (PDF/JPG)</h4>
+                      <h4 style={{margin: '0 0 10px 0'}}>Ceník disciplín a Názvy manévrů</h4>
                       <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
                         <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
                         <input type="number" placeholder="Cena" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
-                        <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
-                          <label style={{fontSize: '0.85rem'}}>Úloha:</label>
-                          <input type="file" accept=".pdf,image/*" onChange={e => setPatternFile(e.target.files[0])} style={{...styles.inputSmall, width: 'auto'}} />
-                        </div>
                         <button type="submit" style={styles.btnSave}>Přidat</button>
                       </form>
 
@@ -1089,7 +776,7 @@ export default function Home() {
                             <tr style={{textAlign: 'left'}}>
                               <th style={{padding: '10px'}}>Disciplína</th>
                               <th style={{padding: '10px', width: '80px'}}>Cena</th>
-                              <th style={{padding: '10px', width: '80px', textAlign: 'center'}}>Úloha</th>
+                              <th style={{padding: '10px'}}>Názvy manévrů (čárkou oddělené)</th>
                               <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
                             </tr>
                           </thead>
@@ -1102,24 +789,24 @@ export default function Home() {
                                     <td style={{padding: '10px'}}>
                                       <input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '70px'}} /> Kč
                                     </td>
-                                    <td style={{padding: '10px', textAlign: 'center'}}>
-                                      <input type="file" accept=".pdf,image/*" onChange={e => setEditPatternFile(e.target.files[0])} style={{width: '130px', fontSize: '0.75rem'}} />
+                                    <td style={{padding: '10px'}}>
+                                      <input type="text" placeholder="Krok, Klus, Obrat..." value={editManeuvers} onChange={e => setEditManeuvers(e.target.value)} style={styles.inputSmall} />
                                     </td>
                                     <td style={{padding: '10px', textAlign: 'center'}}>
-                                      <button onClick={() => handleSaveEditPricing(p.id, p.discipline_name)} style={{...styles.btnSave, padding: '5px 10px', marginRight: '5px'}}>Uložit</button>
+                                      <button onClick={async () => {
+                                        await supabase.from('pricing').update({ price: parseInt(editDiscPrice), maneuver_names: editManeuvers }).eq('id', p.id);
+                                        setEditingPricingId(null);
+                                        window.location.reload();
+                                      }} style={{...styles.btnSave, padding: '5px 10px', marginRight: '5px'}}>Uložit</button>
                                       <button onClick={() => setEditingPricingId(null)} style={{background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontWeight: 'bold'}}>Zrušit</button>
                                     </td>
                                   </>
                                 ) : (
                                   <>
                                     <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                                    <td style={{padding: '10px'}}>{p.maneuver_names || <span style={{color:'#aaa'}}>Nenastaveno</span>}</td>
                                     <td style={{padding: '10px', textAlign: 'center'}}>
-                                      {p.pattern_url ? (
-                                        <a href={p.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0277bd'}}>Zobrazit</a>
-                                      ) : '-'}
-                                    </td>
-                                    <td style={{padding: '10px', textAlign: 'center'}}>
-                                      <button onClick={() => startEditingPricing(p)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
+                                      <button onClick={() => { setEditingPricingId(p.id); setEditDiscPrice(p.price); setEditManeuvers(p.maneuver_names || ''); }} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
                                       <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Smazat</button>
                                     </td>
                                   </>
@@ -1137,11 +824,11 @@ export default function Home() {
                   <div className="no-print">
                     <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', margin: '20px 0'}}>
                       <h3 style={{color: '#e65100', marginTop: 0}}>Nové uživatelské přístupy</h3>
-                      <p>Zde můžete vytvořit účet pro Hlasatele nebo Rozhodčího. Přístupy se odešlou na zadaný e-mail.</p>
+                      <p>Zde můžete vytvořit účet pro Hlasatele nebo Zapisovatele. Přístupy se odešlou na zadaný e-mail.</p>
                       <form onSubmit={handleCreateAccount} style={{display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '400px'}}>
                         <input type="email" placeholder="E-mailová adresa" value={newAccountEmail} onChange={e => setNewAccountEmail(e.target.value)} style={styles.inputSmall} required/>
                         <select value={newAccountRole} onChange={e => setNewAccountRole(e.target.value)} style={styles.inputSmall}>
-                          <option value="judge">Rozhodčí (Judge)</option>
+                          <option value="judge">Zapisovatel (Scribe)</option>
                           <option value="speaker">Hlasatel (Speaker)</option>
                           <option value="admin">Administrátor</option>
                         </select>
@@ -1155,7 +842,7 @@ export default function Home() {
                   <div className="no-print">
                     <div style={{background: '#e3f2fd', padding: '20px', borderRadius: '8px', border: '2px solid #0288d1', textAlign: 'center'}}>
                       <h3 style={{color: '#0288d1', marginTop: 0}}>📢 Manuální odeslání zprávy do kanálu</h3>
-                      <p>Tato zpráva se rozešle všem sledujícím.</p>
+                      <p>Tato zpráva se rozešle všem sledujícím na Telegramu.</p>
                       <input type="text" placeholder="Napište vzkaz pro jezdce..." value={manualTgMessage} onChange={e => setManualTgMessage(e.target.value)} style={{...styles.input, fontSize: '1.1rem', padding: '15px'}} />
                       <button onClick={sendManualTgMessage} style={{...styles.btnSave, background: '#0288d1', padding: '15px 30px', fontSize: '1.1rem', marginTop: '10px'}}>Odeslat Zprávu Nyní</button>
                     </div>
@@ -1165,6 +852,35 @@ export default function Home() {
                 {adminSelectedEvent && adminSelectedEvent !== 'telegram' && adminSelectedEvent !== 'accounts' && (
                   <div className={printMode ? 'print-area' : ''}>
                     
+                    <div className="no-print" style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px'}}>
+                      <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc'}}>
+                        <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů (Vidí všichni):</strong>
+                        <textarea 
+                          rows="5" 
+                          style={{...styles.input, resize: 'vertical'}} 
+                          defaultValue={events.find(e => e.id === adminSelectedEvent)?.schedule || ''}
+                          onBlur={async (e) => {
+                            await supabase.from('events').update({ schedule: e.target.value }).eq('id', adminSelectedEvent);
+                            alert('Plán uložen!');
+                          }}
+                          placeholder="Napište plán závodů. Enter = nový řádek."
+                        />
+                      </div>
+                      <div style={{background: '#e8f5e9', padding: '15px', borderRadius: '8px', border: '1px solid #4caf50'}}>
+                        <strong style={{color: '#2e7d32', display: 'block', marginBottom: '5px'}}>📜 Propozice a Pravidla:</strong>
+                        <textarea 
+                          rows="5" 
+                          style={{...styles.input, resize: 'vertical', border: '1px solid #4caf50'}} 
+                          defaultValue={events.find(e => e.id === adminSelectedEvent)?.event_propositions || ''}
+                          onBlur={async (e) => {
+                            await supabase.from('events').update({ event_propositions: e.target.value }).eq('id', adminSelectedEvent);
+                            alert('Propozice uloženy!');
+                          }}
+                          placeholder="Zde napište kompletní propozice..."
+                        />
+                      </div>
+                    </div>
+
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                       <div>
                         <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz pro Spíkra:</strong>
@@ -1173,47 +889,79 @@ export default function Home() {
                       <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit vzkaz</button>
                     </div>
 
-                    <div className="no-print" style={{marginBottom: '20px', background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
-                      <div>
-                        <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů (Vidí všichni):</strong>
-                        <span style={{fontSize: '1rem'}}>{events.find(e => e.id === adminSelectedEvent)?.schedule || 'Plán nebyl zadán'}</span>
-                      </div>
-                      <button onClick={() => handleUpdateSchedule(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.schedule)} style={{...styles.btnOutline, margin: 0}}>Upravit plán</button>
-                    </div>
-
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff9c4', padding: '20px', borderRadius: '8px', border: '2px solid #fbc02d', textAlign: 'center'}}>
                       <h3 style={{margin: '0 0 10px 0', color: '#f57f17'}}>Konec závodů</h3>
                       <p style={{margin: '0 0 15px 0', color: '#555'}}>Tímto tlačítkem vygenerujete celkové výsledky a okamžitě je odešlete pro všechny sledující.</p>
                       <button onClick={() => handleEndCompetitionAndSendResults(adminSelectedEvent)} style={{...styles.btnSave, background: '#fbc02d', color: '#000', fontSize: '1.2rem', padding: '15px 30px'}}>🏆 Ukončit závody a vyhlásit výsledky</button>
                     </div>
 
-                    <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
-                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                        <h4 className="no-print" style={{margin: 0}}>Kompletní startovní listina</h4>
-                        <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
-                        <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
+                    {/* OFFLINE REGISTRACE ADMINEM */}
+                    <div className="no-print" style={styles.adminSection}>
+                      <h4 style={{margin: '0 0 10px 0', color: '#0288d1'}}>Offline Registrace na místě</h4>
+                      <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                        <input type="text" placeholder="Jméno jezdce" value={offlineRiderName} onChange={e=>setOfflineRiderName(e.target.value)} style={{...styles.inputSmall, flex: 1}}/>
+                        <input type="text" placeholder="Jméno koně" value={offlineHorseName} onChange={e=>setOfflineHorseName(e.target.value)} style={{...styles.inputSmall, flex: 1}}/>
+                        <select value={offlineAgeCategory} onChange={e=>setOfflineAgeCategory(e.target.value)} style={{...styles.inputSmall, width: '150px'}}>
+                          <option value="18+">Dospělý (18+)</option>
+                          <option value="<18">Mládež/Dítě</option>
+                        </select>
                       </div>
+                      <div style={{marginTop: '10px'}}>
+                         <strong style={{fontSize: '0.85rem'}}>Vyberte disciplíny:</strong>
+                         <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '5px'}}>
+                           {pricing.map(d => (
+                             <label key={d.id} style={{fontSize: '0.85rem', cursor: 'pointer', background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#eee', padding: '5px 10px', borderRadius: '4px'}}>
+                               <input type="checkbox" checked={!!selectedDisciplines.find(x => x.id === d.id)} onChange={() => {
+                                 const exists = selectedDisciplines.find(x => x.id === d.id);
+                                 setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
+                               }} style={{display: 'none'}} />
+                               {d.discipline_name}
+                             </label>
+                           ))}
+                         </div>
+                      </div>
+                      <button onClick={async () => {
+                        if (!offlineRiderName.trim() || !offlineHorseName.trim() || selectedDisciplines.length === 0) return alert("Vyplňte jezdce, koně a vyberte disciplíny.");
+                        const eventObj = events.find(e => e.id === adminSelectedEvent);
+                        const capacity = (eventObj?.start_num_to || 200) - (eventObj?.start_num_from || 1) + 1;
+                        const regData = selectedDisciplines.map(d => ({
+                          user_id: user.id, event_id: adminSelectedEvent, rider_name: offlineRiderName.trim(), age_category: offlineAgeCategory, horse_name: offlineHorseName.trim(),
+                          discipline: d.discipline_name, start_number: Math.floor(Math.random() * capacity) + (eventObj?.start_num_from || 1), draw_order: Math.floor(Math.random() * 100) + 1, price: d.price, is_paid: true, payment_note: 'Hotově na místě'
+                        }));
+                        const { error } = await supabase.from('race_participants').insert(regData);
+                        if(error) alert(error.message); else { alert("Hotovo!"); setOfflineRiderName(''); setOfflineHorseName(''); setSelectedDisciplines([]); window.location.reload(); }
+                      }} style={{...styles.btnSave, background: '#0288d1', marginTop: '10px'}}>Registrovat a Zaplatit</button>
+                    </div>
+
+                    <div className={printMode === 'startlist' ? 'print-area' : 'no-print'} style={{...styles.adminSection, border: printMode ? 'none' : '1px solid #ddd'}}>
+                      <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 style={{margin: 0}}>Startovní listina k tisku</h4>
+                        <button onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
+                      </div>
+                      
+                      <h2 className="print-only" style={{display: 'none', textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid black', paddingBottom: '10px'}}>Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
+                      
                       <div style={{overflowX: 'auto'}}>
-                        <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
+                        <table style={{width: '100%', fontSize: '1rem', borderCollapse: 'collapse'}}>
                           <thead>
                             <tr style={{background: '#eee', textAlign: 'left'}}>
-                              <th style={{padding: '8px', width: '60px'}}>Záda</th>
-                              <th style={{padding: '8px', width: '60px'}}>Draw</th>
-                              <th style={{padding: '8px'}}>Jezdec</th>
-                              <th style={{padding: '8px'}}>Kůň</th>
-                              <th style={{padding: '8px'}}>Disciplína</th>
-                              <th className="no-print" style={{padding: '8px'}}>Poznámka k platbě</th>
+                              <th style={{padding: '10px', border: '1px solid #000'}}>DRAW (Umístění)</th>
+                              <th style={{padding: '10px', border: '1px solid #000'}}>Záda (EXH#)</th>
+                              <th style={{padding: '10px', border: '1px solid #000'}}>Jezdec</th>
+                              <th style={{padding: '10px', border: '1px solid #000'}}>Kůň</th>
+                              <th className="no-print" style={{padding: '10px', border: '1px solid #000'}}>Disciplína</th>
+                              <th className="no-print" style={{padding: '10px', border: '1px solid #000'}}>Platba</th>
                             </tr>
                           </thead>
                           <tbody>
                             {allRegistrations.filter(r => r.event_id === adminSelectedEvent).map((r, i) => (
-                              <tr key={i} style={{borderBottom: '1px solid #eee'}}>
-                                <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
-                                <td style={{padding: '8px'}}><strong>{r.draw_order || '-'}</strong></td>
-                                <td style={{padding: '8px'}}>{r.rider_name}</td>
-                                <td style={{padding: '8px'}}>{r.horse_name}</td>
-                                <td style={{padding: '8px'}}>{r.discipline}</td>
-                                <td className="no-print" style={{padding: '8px'}}>
+                              <tr key={i} style={{borderBottom: '1px solid #000'}}>
+                                <td style={{padding: '10px', border: '1px solid #000'}}></td>
+                                <td style={{padding: '10px', border: '1px solid #000', fontWeight: 'bold', fontSize: '1.2rem'}}>{r.start_number}</td>
+                                <td style={{padding: '10px', border: '1px solid #000'}}>{r.rider_name}</td>
+                                <td style={{padding: '10px', border: '1px solid #000'}}>{r.horse_name}</td>
+                                <td className="no-print" style={{padding: '10px', border: '1px solid #000'}}>{r.discipline}</td>
+                                <td className="no-print" style={{padding: '10px', border: '1px solid #000'}}>
                                   <input 
                                     type="text" 
                                     defaultValue={r.payment_note || ''} 
@@ -1229,33 +977,12 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className={printMode === 'startlist' ? 'no-print' : 'print-area'} style={{...styles.adminSection, border: printMode ? 'none' : '1px solid #ddd'}}>
+                    <div className={printMode === 'scoresheets' ? 'print-area' : 'no-print'} style={{...styles.adminSection, border: printMode ? 'none' : '1px solid #ddd'}}>
                       <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                         <h4 style={{margin: 0}}>Scoresheety k tisku</h4>
                         <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Oficiální Scoresheety</button>
                       </div>
-                      
                       {renderPrintableScoresheets(adminSelectedEvent)}
-
-                    </div>
-                  </div>
-                )}
-
-                {effectiveRole === 'superadmin' && !adminSelectedEvent && (
-                  <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
-                    <h4 style={{margin: '0 0 10px 0'}}>Logy systému</h4>
-                    <div style={{maxHeight: '300px', overflowY: 'auto', background: '#fff', padding: '10px'}}>
-                      {systemLogs.length === 0 ? <p>Žádné záznamy.</p> : (
-                        <ul style={{listStyleType: 'none', padding: 0, margin: 0, fontSize: '0.85rem'}}>
-                          {systemLogs.map(log => (
-                            <li key={log.id} style={{borderBottom: '1px solid #eee', padding: '8px 0'}}>
-                              <span style={{color: '#888'}}>{new Date(log.created_at).toLocaleString('cs-CZ')}</span> - 
-                              <strong style={{marginLeft: '10px'}}>{log.action}</strong>
-                              <div style={{color: '#555', marginTop: '4px', fontSize: '0.8rem'}}>{JSON.stringify(log.details)}</div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
                   </div>
                 )}
@@ -1265,7 +992,12 @@ export default function Home() {
             {effectiveRole === 'judge' && (
               <div className={printMode ? 'print-area' : ''}>
                 <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '20px'}}>
-                  <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
+                  <h3 style={{marginTop: 0, color: '#0277bd'}}>Panel Zapisovatele (Scribe)</h3>
+                </div>
+
+                <div className="no-print" style={{background: '#e1f5fe', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #0288d1'}}>
+                  <label style={{fontWeight: 'bold', color: '#0277bd'}}>Jméno hlavního rozhodčího (pro digitální podpis):</label>
+                  <input type="text" placeholder="Např. Pavla Doubravová" value={actualJudgeName} onChange={e => setActualJudgeName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1'}} />
                 </div>
 
                 {judgeEvent && !evaluatingParticipant && (
@@ -1283,45 +1015,70 @@ export default function Home() {
                     <div style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd', display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
                       
                       <div style={{flex: 2, minWidth: '300px'}}>
-                        <div style={{display: 'flex', justifyContent: 'space-between'}}>
-                          <h2 style={{marginTop: 0}}>{evaluatingParticipant.discipline}</h2>
-                          <h2 style={{marginTop: 0}}>Startovní číslo: {evaluatingParticipant.start_number}</h2>
+                        <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '15px'}}>
+                          <h2 style={{marginTop: 0, color: '#0277bd'}}>{evaluatingParticipant.discipline}</h2>
+                          <h2 style={{marginTop: 0}}>Záda (EXH#): {evaluatingParticipant.start_number}</h2>
                         </div>
-                        <p style={{fontSize: '1.2rem', marginBottom: '30px'}}>Jezdec: <strong>{evaluatingParticipant.rider_name}</strong> | Kůň: <strong>{evaluatingParticipant.horse_name}</strong></p>
+                        <p style={{fontSize: '1.3rem', marginBottom: '30px'}}>Jezdec: <strong>{evaluatingParticipant.rider_name}</strong> | Kůň: <strong>{evaluatingParticipant.horse_name}</strong></p>
                         
                         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px'}}>
                           <div>
                             <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Manévry (Skóre)</h4>
-                            {maneuverScores.map((score, index) => (
-                              <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center'}}>
-                                <strong>Manévr {index + 1}</strong>
-                                <select value={score} onChange={(e) => handleManeuverChange(index, e.target.value)} style={{padding: '5px', borderRadius: '4px', border: '1px solid #ccc'}}>
-                                  <option value="1.5">+1.5 (Excellent)</option>
-                                  <option value="1.0">+1.0 (Very Good)</option>
-                                  <option value="0.5">+0.5 (Good)</option>
-                                  <option value="0">0 (Average)</option>
-                                  <option value="-0.5">-0.5 (Poor)</option>
-                                  <option value="-1.0">-1.0 (Very Poor)</option>
-                                  <option value="-1.5">-1.5 (Extremely Poor)</option>
-                                </select>
-                              </div>
-                            ))}
+                            {maneuverScores.map((score, index) => {
+                              const maneuverNamesArr = pricing.find(p => p.discipline_name === evaluatingParticipant.discipline)?.maneuver_names?.split(',') || [];
+                              const maneuverName = maneuverNamesArr[index]?.trim() || `Manévr ${index + 1}`;
+                              const isShowmanship = evaluatingParticipant.discipline.toLowerCase().includes('showmanship') || evaluatingParticipant.discipline.toLowerCase().includes('horsemanship');
+                              
+                              return (
+                                <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center'}}>
+                                  <strong>{maneuverName}</strong>
+                                  <select value={score} onChange={(e) => handleManeuverChange(index, e.target.value)} style={{padding: '5px', borderRadius: '4px', border: '1px solid #ccc', fontWeight: 'bold'}}>
+                                    {isShowmanship ? (
+                                      <>
+                                        <option value="3">+3</option>
+                                        <option value="2">+2</option>
+                                        <option value="1">+1</option>
+                                        <option value="0">0</option>
+                                        <option value="-1">-1</option>
+                                        <option value="-2">-2</option>
+                                        <option value="-3">-3</option>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <option value="1.5">+1.5</option>
+                                        <option value="1.0">+1.0</option>
+                                        <option value="0.5">+0.5</option>
+                                        <option value="0">0</option>
+                                        <option value="-0.5">-0.5</option>
+                                        <option value="-1.0">-1.0</option>
+                                        <option value="-1.5">-1.5</option>
+                                      </>
+                                    )}
+                                  </select>
+                                </div>
+                              )
+                            })}
                           </div>
                           <div>
                             <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Penalizace (Trestné body)</h4>
-                            {penaltyScores.map((penalty, index) => (
-                              <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center'}}>
-                                <strong>U manévru {index + 1}</strong>
-                                <input 
-                                  type="number" 
-                                  min="0" 
-                                  step="0.5" 
-                                  value={penalty} 
-                                  onChange={(e) => handlePenaltyChange(index, e.target.value)} 
-                                  style={{padding: '5px', width: '60px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center'}}
-                                />
-                              </div>
-                            ))}
+                            {penaltyScores.map((penalty, index) => {
+                               const maneuverNamesArr = pricing.find(p => p.discipline_name === evaluatingParticipant.discipline)?.maneuver_names?.split(',') || [];
+                               const maneuverName = maneuverNamesArr[index]?.trim() || `Manévr ${index + 1}`;
+                               return (
+                                <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center'}}>
+                                  <strong>U: {maneuverName}</strong>
+                                  <input 
+                                    type="number" 
+                                    min="0" 
+                                    step="0.5" 
+                                    value={penalty} 
+                                    onChange={(e) => handlePenaltyChange(index, e.target.value)} 
+                                    placeholder="0"
+                                    style={{padding: '5px', width: '60px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center', fontWeight: 'bold', color: 'red'}}
+                                  />
+                                </div>
+                               )
+                            })}
                           </div>
                         </div>
 
@@ -1331,7 +1088,23 @@ export default function Home() {
                         </div>
 
                         <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
-                          <button onClick={saveScore} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.1rem'}}>Uložit hodnocení vč. Podpisu</button>
+                          <button onClick={async () => {
+                            if (!actualJudgeName.trim()) { alert("Zadejte prosím jméno hlavního rozhodčího nahoře!"); return; }
+                            const total = calculateTotalScore();
+                            const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
+                            const timestamp = new Date().toISOString();
+                            const dataToSign = `${evaluatingParticipant.id}-${actualJudgeName}-${timestamp}-${total}-${JSON.stringify(scoreData)}`;
+                            const hash = await generateHash(dataToSign);
+
+                            await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
+                            const { error } = await supabase.from('scoresheets').insert({
+                              participant_id: evaluatingParticipant.id, judge_id: user.id, judge_name: actualJudgeName,
+                              scored_at: timestamp, signature_hash: hash, score_data: scoreData, total_score: total
+                            });
+
+                            if (error) alert('Chyba při ukládání: ' + error.message);
+                            else { alert('Hodnocení uloženo!'); setEvaluatingParticipant(null); checkUser(); }
+                          }} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.1rem'}}>Uložit hodnocení vč. Podpisu</button>
                           <button onClick={() => setEvaluatingParticipant(null)} style={{...styles.btnOutline, flex: 1, marginTop: 0}}>Zpět na listinu</button>
                         </div>
                       </div>
@@ -1376,8 +1149,7 @@ export default function Home() {
                           <table style={{width: '100%', borderCollapse: 'collapse'}}>
                             <thead>
                               <tr style={{background: '#e1f5fe', textAlign: 'left'}}>
-                                <th style={{padding: '10px'}}>Draw</th>
-                                <th style={{padding: '10px'}}>Záda</th>
+                                <th style={{padding: '10px'}}>Záda (EXH#)</th>
                                 <th style={{padding: '10px'}}>Jezdec</th>
                                 <th style={{padding: '10px'}}>Kůň</th>
                                 <th style={{padding: '10px', textAlign: 'center'}}>Stav</th>
@@ -1390,15 +1162,14 @@ export default function Home() {
                                 
                                 return (
                                   <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
-                                    <td style={{padding: '10px', fontWeight: 'bold', color: '#0277bd', fontSize: '1.1rem'}}>{r.draw_order}</td>
-                                    <td style={{padding: '10px', fontWeight: 'bold'}}>{r.start_number}</td>
+                                    <td style={{padding: '10px', fontWeight: 'bold', fontSize: '1.2rem'}}>{r.start_number}</td>
                                     <td style={{padding: '10px'}}>{r.rider_name}</td>
                                     <td style={{padding: '10px'}}>{r.horse_name}</td>
                                     <td style={{padding: '10px', textAlign: 'center'}}>
                                       {isScored ? (
                                         <button onClick={() => openScoresheet(r)} style={{...styles.btnOutline, padding: '5px 10px', border: '1px solid #4caf50', color: '#4caf50'}}>Opravit ({scoreObj.total_score})</button>
                                       ) : (
-                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd'}}>Hodnotit</button>
+                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd'}}>Zapsat Skóre</button>
                                       )}
                                     </td>
                                   </tr>
@@ -1436,7 +1207,7 @@ export default function Home() {
                   <div>
                     <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
                       <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
-                      <span style={{fontSize: '1.2rem'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
+                      <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
                     </div>
 
                     {lockedEvent?.speaker_message && (
@@ -1459,8 +1230,7 @@ export default function Home() {
                         <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
                           <thead>
                             <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
-                              <th style={{padding: '15px'}}>Draw</th>
-                              <th style={{padding: '15px'}}>Číslo</th>
+                              <th style={{padding: '15px'}}>Záda</th>
                               <th style={{padding: '15px'}}>Jezdec</th>
                               <th style={{padding: '15px'}}>Kůň</th>
                               <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
@@ -1473,7 +1243,6 @@ export default function Home() {
                               
                               return (
                                 <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: isScored ? '#f1f8e9' : '#fff'}}>
-                                  <td style={{padding: '15px', fontWeight: 'bold', color: '#5d4037'}}>{r.draw_order}.</td>
                                   <td style={{padding: '15px', fontWeight: '900', fontSize: '1.8rem'}}>{r.start_number}</td>
                                   <td style={{padding: '15px'}}>{r.rider_name}</td>
                                   <td style={{padding: '15px'}}><strong>{r.horse_name}</strong></td>
@@ -1522,8 +1291,8 @@ export default function Home() {
                       
                       <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Věková kategorie jezdce:</label>
                       <select value={riderAgeCategory} onChange={e => setRiderAgeCategory(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}}>
-                        <option value="18+">18 a více let</option>
-                        <option value="<18">Méně než 18 let</option>
+                        <option value="18+">Dospělý (18+)</option>
+                        <option value="<18">Mládež/Dítě</option>
                       </select>
                     </div>
 
@@ -1580,7 +1349,7 @@ export default function Home() {
                         {events.filter(e => allRegistrations.filter(r => r.user_id === user?.id).some(r => r.event_id === e.id) && e.schedule).map(ev => (
                           <div key={ev.id} style={{background: '#f5f5f5', padding: '10px', borderRadius: '6px', marginBottom: '15px', borderLeft: '4px solid #8d6e63'}}>
                             <strong style={{color: '#5d4037'}}>Plán pro závod {ev.name}:</strong><br/>
-                            {ev.schedule}
+                            <span style={{whiteSpace: 'pre-wrap'}}>{ev.schedule}</span>
                           </div>
                         ))}
 
