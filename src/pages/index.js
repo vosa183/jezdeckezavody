@@ -54,15 +54,14 @@ const disciplineRuleHints = {
     "Penalta 5: Spur stop (použití ostruhy před sedlem), držení se sedla, zjevná neposlušnost."
   ],
   showmanship: [
-    "POZOR: Tato disciplína (Showmanship/Horsemanship) se hodnotí od -3 (Extrémně špatné) do +3 (Excelentní) pouze PO CELÝCH BODECH!",
-    "Základní skóre začíná na 70.",
+    "POZOR: Tato disciplína (Showmanship/Horsemanship) se hodnotí od -3 (Extrémně špatné) do +3 (Excelentní), POUZE PO CELÝCH BODECH!",
     "Penalizace: Malá = 3 b., Velká = 5 b., Závažná = 10 b.",
     "F&E (Celkový výkon a efektivita): Hodnocení 0 (průměr) až 5 (excelentní)."
   ]
 };
 
 const getRulesForDiscipline = (disciplineName) => {
-  if(!disciplineName) return disciplineRuleHints.default;
+  if (!disciplineName) return disciplineRuleHints.default;
   const nameL = disciplineName.toLowerCase();
   if (nameL.includes('ranch') || nameL.includes('riding')) return disciplineRuleHints.ranch;
   if (nameL.includes('trail')) return disciplineRuleHints.trail;
@@ -87,22 +86,24 @@ export default function Home() {
   const [pricing, setPricing] = useState([]);
   const [scoresheets, setScoresheets] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]); 
-  const [globalProps, setGlobalProps] = useState('');
   
   const [selectedEvent, setSelectedEvent] = useState('');
   const [selectedHorse, setSelectedHorse] = useState('');
   const [newHorseName, setNewHorseName] = useState(''); 
-  const [newHorseYear, setNewHorseYear] = useState('');
-  const [newHorseLicense, setNewHorseLicense] = useState('');
+  const [newHorseBirthYear, setNewHorseBirthYear] = useState(''); 
+  const [newHorseLicense, setNewHorseLicense] = useState(''); 
   
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
   const [customRiderName, setCustomRiderName] = useState(''); 
-  const [riderAgeCategory, setRiderAgeCategory] = useState('Open');
+  
+  // NOVÁ POLÍČKA PRO REGISTRACI A PDF
+  const [riderAgeCategory, setRiderAgeCategory] = useState('18+');
   const [patternFile, setPatternFile] = useState(null);
 
+  // STAVY PRO INLINE EDITACI CENÍKU
   const [editingPricingId, setEditingPricingId] = useState(null);
   const [editDiscPrice, setEditDiscPrice] = useState('');
-  const [editDiscSortOrder, setEditDiscSortOrder] = useState(0);
+  const [editDiscSort, setEditDiscSort] = useState(0);
   const [editDiscManeuvers, setEditDiscManeuvers] = useState('');
   const [editPatternFile, setEditPatternFile] = useState(null);
   
@@ -113,34 +114,35 @@ export default function Home() {
   const [newEventDate, setNewEventDate] = useState('');
   const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
   const [newStartNumTo, setNewStartNumTo] = useState('100'); 
-  
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
-  const [newDiscSortOrder, setNewDiscSortOrder] = useState(10);
+  const [newDiscSort, setNewDiscSort] = useState(0);
   
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
   const [manualTgMessage, setManualTgMessage] = useState('');
-  
-  const [adminHostRider, setAdminHostRider] = useState('');
-  const [adminHostHorse, setAdminHostHorse] = useState('');
-  const [adminHostAge, setAdminHostAge] = useState('Open');
-  const [adminHostDisc, setAdminHostDisc] = useState('');
 
   const [newAccountEmail, setNewAccountEmail] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('judge');
-  const [editPropositionsText, setEditPropositionsText] = useState('');
 
   const [judgeEvent, setJudgeEvent] = useState('');
   const [judgeDiscipline, setJudgeDiscipline] = useState('');
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
-  const [actualJudgeName, setActualJudgeName] = useState(''); // Jméno zapisovaného rozhodčího
-  const [isDQ, setIsDQ] = useState(false); // Diskvalifikace
-  
   const [maneuverScores, setManeuverScores] = useState(Array(10).fill(0));
   const [penaltyScores, setPenaltyScores] = useState(Array(10).fill(0));
+  const [actualJudgeName, setActualJudgeName] = useState('');
+  const [isDQ, setIsDQ] = useState(false);
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
+
+  const [publicRulesText, setPublicRulesText] = useState('');
+  const [editRulesText, setEditRulesText] = useState('');
+
+  // Hostovská registrace (Admin na místě)
+  const [hostRiderName, setHostRiderName] = useState('');
+  const [hostAgeCat, setHostAgeCat] = useState('18+');
+  const [hostHorseName, setHostHorseName] = useState('');
+  const [hostDiscipline, setHostDiscipline] = useState('');
 
   useEffect(() => {
     fetchPublicSettings();
@@ -151,10 +153,10 @@ export default function Home() {
     const { data: prices } = await supabase.from('pricing').select('*').order('sort_order', { ascending: true });
     if (prices) setPricing(prices);
 
-    const { data: rules } = await supabase.from('system_settings').select('rules_text').eq('id', 1).single();
-    if (rules) {
-      setGlobalProps(rules.rules_text);
-      setEditPropositionsText(rules.rules_text);
+    const { data: settings } = await supabase.from('system_settings').select('rules_text').eq('id', 1).single();
+    if (settings) {
+      setPublicRulesText(settings.rules_text);
+      setEditRulesText(settings.rules_text);
     }
   };
 
@@ -243,12 +245,13 @@ export default function Home() {
       const { error, data } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert(error.message);
       else {
-        await logSystemAction('Přihlášení', { email });
+        await supabase.from('system_logs').insert([{ user_id: data.user.id, action: 'Přihlášení', details: { email } }]);
         window.location.reload();
       }
     }
     setLoading(false);
   };
+
   const updateProfile = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
@@ -265,6 +268,15 @@ export default function Home() {
       await logSystemAction('Úprava profilu', { name: profile.full_name });
       alert('Profil uložen!'); 
       setEditMode(false); 
+    }
+  };
+
+  const handleUpdateRules = async () => {
+    const { error } = await supabase.from('system_settings').upsert({ id: 1, rules_text: editRulesText });
+    if(error) alert(error.message);
+    else {
+      alert('Propozice uloženy!');
+      fetchPublicSettings();
     }
   };
 
@@ -304,7 +316,7 @@ export default function Home() {
   };
 
   const handleUpdateSpeakerMessage = async (eventId, currentMessage) => {
-    const msg = prompt("Zadejte rychlý vzkaz POUZE pro hlasatele. Smazáním textu vzkaz zrušíte:", currentMessage || "");
+    const msg = prompt("Zadejte rychlý vzkaz POUZE pro hlasatele:", currentMessage || "");
     if (msg !== null) {
       const { error } = await supabase.from('events').update({ speaker_message: msg }).eq('id', eventId);
       if (error) alert(error.message);
@@ -324,14 +336,11 @@ export default function Home() {
       start_num_to: parseInt(newStartNumTo)
     }]);
     
-    if (error) alert(error.message);
-    else { 
-      await logSystemAction('Vypsán nový závod', { name: newEventName, from: newStartNumFrom, to: newStartNumTo });
-      
-      const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n` +
-                    `🏆 <b>Název:</b> ${newEventName}\n` +
-                    `📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\n` +
-                    `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
+    if (error) {
+      alert(error.message);
+    } else { 
+      await logSystemAction('Vypsán nový závod', { name: newEventName });
+      const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n🏆 <b>Název:</b> ${newEventName}\n📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\nPřihlášky byly právě otevřeny. Těšíme se na vás! 🤠`;
       await sendTelegramMessage(tgMsg);
       alert('Závod vytvořen a oznámení odesláno do Telegramu!'); 
       window.location.reload(); 
@@ -339,25 +348,13 @@ export default function Home() {
   };
 
   const toggleEventLock = async (id, currentLocked, eventName) => {
-    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu a hlasateli?')) {
+    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky?')) {
       const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
       if (error) alert(error.message);
       else {
         await logSystemAction(currentLocked ? 'Odemčen závod' : 'Uzamčen závod', { event: eventName });
         window.location.reload();
       }
-    }
-  };
-
-  const handleUpdatePropositions = async () => {
-    const { error } = await supabase.from('system_settings').upsert({
-      id: 1, rules_text: editPropositionsText
-    });
-    if (error) alert(error.message);
-    else {
-      await logSystemAction('Administrátor změnil propozice závodů');
-      alert('Propozice byly úspěšně uloženy pro všechny uživatele!');
-      fetchPublicSettings();
     }
   };
 
@@ -369,22 +366,20 @@ export default function Home() {
       const fileExt = patternFile.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from('patterns').upload(fileName, patternFile);
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-        patternUrl = urlData.publicUrl;
-      }
+      if (uploadError) return alert('Chyba nahrávání: ' + uploadError.message);
+      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
+      patternUrl = urlData.publicUrl;
     }
 
     const { error } = await supabase.from('pricing').insert([{ 
       discipline_name: newDiscName, 
-      price: parseInt(newDiscPrice),
-      sort_order: parseInt(newDiscSortOrder),
+      price: parseInt(newDiscPrice), 
+      sort_order: parseInt(newDiscSort),
       pattern_url: patternUrl 
     }]);
     if (error) alert(error.message);
     else { 
-      await logSystemAction('Nová disciplína v ceníku', { discipline: newDiscName, price: newDiscPrice });
-      alert('Disciplína přidána!'); 
+      await logSystemAction('Nová disciplína v ceníku', { discipline: newDiscName });
       window.location.reload(); 
     }
   };
@@ -392,7 +387,7 @@ export default function Home() {
   const startEditingPricing = (p) => {
     setEditingPricingId(p.id);
     setEditDiscPrice(p.price);
-    setEditDiscSortOrder(p.sort_order || 0);
+    setEditDiscSort(p.sort_order || 0);
     setEditDiscManeuvers(p.maneuver_names || '');
     setEditPatternFile(null);
   };
@@ -411,7 +406,7 @@ export default function Home() {
 
     const updateData = { 
       price: parseInt(editDiscPrice),
-      sort_order: parseInt(editDiscSortOrder),
+      sort_order: parseInt(editDiscSort),
       maneuver_names: editDiscManeuvers
     };
     if (patternUrl) updateData.pattern_url = patternUrl;
@@ -420,36 +415,31 @@ export default function Home() {
     if (error) alert(error.message);
     else {
       await logSystemAction('Změna disciplíny', { discipline: discName });
-      alert('Disciplína úspěšně upravena!');
       setEditingPricingId(null);
-      fetchPublicSettings(); // Aktualizuj front-end s novym razenim
+      fetchPublicSettings();
     }
   };
 
   const handleDeletePricing = async (id, discName) => {
     if (confirm(`Opravdu chcete smazat disciplínu ${discName}?`)) {
       const { error } = await supabase.from('pricing').delete().eq('id', id);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Smazána disciplína', { discipline: discName });
-        window.location.reload();
-      }
+      if (!error) window.location.reload();
     }
   };
 
   const updatePaymentNote = async (id, note, riderName) => {
     await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
-    await logSystemAction('Úprava poznámky k platbě', { rider: riderName, note });
     alert('Poznámka k platbě uložena!');
   };
 
   const handleUpdateSchedule = async (eventId, currentSchedule) => {
-    const { error } = await supabase.from('events').update({ schedule: currentSchedule }).eq('id', eventId);
-    if (error) alert(error.message);
-    else {
-      await logSystemAction('Změna plánu závodů');
-      alert('Plán uložen!');
-      checkUser();
+    const msg = prompt("Zadejte textový plán (možnost enterování pro odřádkování):", currentSchedule || "");
+    if (msg !== null) {
+      const { error } = await supabase.from('events').update({ schedule: msg }).eq('id', eventId);
+      if (!error) {
+        if (msg.trim() !== '') await sendTelegramMessage(`📅 <b>AKTUÁLNÍ PLÁN ZÁVODŮ:</b>\n\n${msg}`);
+        checkUser();
+      }
     }
   };
 
@@ -461,13 +451,11 @@ export default function Home() {
   };
 
   const handleEndCompetitionAndSendResults = async (eventId) => {
-    if(!confirm("Opravdu chcete slavnostně ukončit závody a odeslat kompletní výsledky?")) return;
-
+    if(!confirm("Opravdu chcete ukončit závody a odeslat výsledky?")) return;
     const eventObj = events.find(e => e.id === eventId);
-    let tgMsg = `🏆 <b>ZÁVODY UKONČENY - CELKOVÉ VÝSLEDKY</b> 🏆\n\n<b>${eventObj.name}</b>\n\n`;
+    let tgMsg = `🏆 <b>ZÁVODY UKONČENY - VÝSLEDKY</b> 🏆\n\n<b>${eventObj.name}</b>\n\n`;
 
     const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
-
     disciplines.forEach(disc => {
       const ridersInDisc = allRegistrations.filter(r => r.event_id === eventId && r.discipline === disc);
       const scoredRiders = ridersInDisc
@@ -481,112 +469,101 @@ export default function Home() {
       if(scoredRiders.length > 0) {
         tgMsg += `📍 <b>${disc}</b>\n`;
         scoredRiders.forEach((r, index) => {
-          let medal = '🏅';
-          if(index === 0) medal = '🥇';
-          if(index === 1) medal = '🥈';
-          if(index === 2) medal = '🥉';
+          let medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
           tgMsg += `${medal} ${index + 1}. ${r.rider_name} (${r.horse_name}) - <b>${r.sObj.total_score} b.</b>\n`;
         });
         tgMsg += `\n`;
       }
     });
 
-    tgMsg += `Děkujeme všem a těšíme se příště! 🎉`;
     await sendTelegramMessage(tgMsg);
-    alert('Závody ukončeny a odeslány na Telegram!');
+    alert('Výsledky byly odeslány!');
   };
 
-  // Registrace klasického jezdce
   const handleRaceRegistration = async () => {
-    if (!profile?.full_name || !profile?.phone || !profile?.birth_date) {
-      alert("Než se přihlásíte, musíte mít v profilu vyplněné jméno a datum narození!");
+    if (!profile?.full_name || !profile?.stable || !profile?.birth_date) {
+      alert("Než se přihlásíte, musíte mít v profilu kompletní údaje vč. data narození!");
       return;
     }
-
     if (!selectedEvent || !selectedHorse || selectedDisciplines.length === 0 || !customRiderName.trim()) {
-      alert("Vyplňte prosím jméno jezdce, vyberte závod, koně a aspoň jednu disciplínu.");
+      alert("Vyplňte jméno jezdce, závod, koně a aspoň jednu disciplínu.");
       return;
     }
 
     let finalHorseName = selectedHorse;
     if (selectedHorse === 'new') {
-      if (!newHorseName.trim()) return alert("Napište jméno nového koně!");
-      const { data: newH } = await supabase.from('horses')
-        .insert([{ owner_id: user.id, name: newHorseName.trim(), birth_year: parseInt(newHorseYear), license_number: newHorseLicense }])
+      if (!newHorseName.trim()) return alert("Napište jméno koně!");
+      const { data: newHorse } = await supabase.from('horses')
+        .insert([{ owner_id: user.id, name: newHorseName.trim(), birth_year: parseInt(newHorseBirthYear), license_number: newHorseLicense }])
         .select().single();
-      finalHorseName = newH.name;
+      finalHorseName = newHorse.name;
     }
 
     const { data: freshRegs } = await supabase.from('race_participants').select('start_number').eq('event_id', selectedEvent);
     const capacity = 200; 
-    let assignedNumber = Math.floor(Math.random() * capacity) + 1; // Zjednodušeně si systém najde volné, pro ukázku rand
+    let assignedNumber = Math.floor(Math.random() * capacity) + 1; // Zjednodušené přiřazení EXH
 
-    const registrationData = selectedDisciplines.map((d) => ({
-      user_id: user.id,
-      event_id: selectedEvent,
-      rider_name: customRiderName.trim(),
-      age_category: riderAgeCategory,
-      horse_name: finalHorseName,
-      discipline: d.discipline_name,
-      start_number: assignedNumber,
-      draw_order: Math.floor(Math.random() * 60) + 1,
-      price: d.price,
-      is_paid: false,
-      payment_note: ''
-    }));
+    const registrationData = selectedDisciplines.map(d => {
+      const assignedDraw = Math.floor(Math.random() * 60) + 1; // Zjednodušený los Draw
+      return {
+        user_id: user.id,
+        event_id: selectedEvent,
+        rider_name: customRiderName.trim(),
+        age_category: riderAgeCategory,
+        horse_name: finalHorseName,
+        discipline: d.discipline_name,
+        start_number: assignedNumber,
+        draw_order: assignedDraw,
+        price: d.price,
+        is_paid: false,
+        payment_note: ''
+      };
+    });
 
     const { error } = await supabase.from('race_participants').insert(registrationData);
-    if (error) alert(error.message);
-    else {
-      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: customRiderName });
+    if (!error) {
       alert(`Přihláška odeslána!`);
       window.location.reload();
     }
   };
 
-  // Registrace na místě u Admina
   const handleAdminHostRegistration = async (e) => {
     e.preventDefault();
     const capacity = 200;
     let assignedNumber = Math.floor(Math.random() * capacity) + 1;
 
-    const discObj = pricing.find(p => p.discipline_name === adminHostDisc);
-    
-    if(!discObj) return alert('Chyba: Zvolte platnou disciplínu.');
+    const discObj = pricing.find(p => p.discipline_name === hostDiscipline);
+    if(!discObj) return alert('Zvolte disciplínu.');
 
     const { error } = await supabase.from('race_participants').insert([{
-      user_id: user.id,
+      user_id: user.id, // ID admina, který zakládá
       event_id: adminSelectedEvent,
-      rider_name: adminHostRider,
-      age_category: adminHostAge,
-      horse_name: adminHostHorse,
-      discipline: adminHostDisc,
+      rider_name: hostRiderName,
+      age_category: hostAgeCat,
+      horse_name: hostHorseName,
+      discipline: hostDiscipline,
       start_number: assignedNumber,
       draw_order: Math.floor(Math.random() * 60) + 1,
       price: discObj.price,
       is_paid: false,
-      payment_note: 'Reg. na místě'
+      payment_note: 'Registrováno na místě'
     }]);
 
     if(error) alert(error.message);
     else {
-      await logSystemAction('Admin přidal jezdce na místě', { rider: adminHostRider, horse: adminHostHorse });
-      alert('Host úspěšně přidán do startovky!');
-      setAdminHostRider('');
-      setAdminHostHorse('');
+      alert('Host přidán!');
+      setHostRiderName(''); setHostHorseName('');
       checkUser();
     }
   };
 
   const handleCancelRegistration = async (id) => {
-    if (confirm("Opravdu chcete zrušit tuto přihlášku?")) {
-      const { error } = await supabase.from('race_participants').delete().eq('id', id);
-      if (error) alert(error.message); 
-      else window.location.reload();
+    if (confirm("Opravdu chcete zrušit přihlášku?")) {
+      await supabase.from('race_participants').delete().eq('id', id);
+      window.location.reload();
     }
   };
 
-  // ---- LOGIKA ZAPISOVATELE / ROZHODČÍHO ---- //
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
@@ -615,38 +592,37 @@ export default function Home() {
     }
   };
 
-  const isShowmanship = (disc) => disc && (disc.toLowerCase().includes('showmanship') || disc.toLowerCase().includes('horsemanship') || disc.toLowerCase().includes('equitation'));
-
   const calculateTotalScore = () => {
     if(isDQ) return -999;
     const baseScore = 70;
-    const dIsShow = isShowmanship(evaluatingParticipant?.discipline);
-    const startBase = dIsShow ? 70 : baseScore; // I v Showmanshipu je základ 70
     
-    let mTotal = 0;
-    maneuverScores.forEach(val => { mTotal += parseFloat(val) || 0; });
+    let isShowmanship = false;
+    if(evaluatingParticipant) {
+      const discL = evaluatingParticipant.discipline.toLowerCase();
+      isShowmanship = discL.includes('showmanship') || discL.includes('horsemanship') || discL.includes('equitation');
+    }
     
-    let pTotal = 0;
-    penaltyScores.forEach(val => { pTotal += parseFloat(val) || 0; });
-
-    return startBase + mTotal - pTotal;
+    // I Showmanship začíná na 70 podle nových pravidel
+    let mTotal = maneuverScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
+    let pTotal = penaltyScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
+    return baseScore + mTotal - pTotal;
   };
 
   const saveScore = async () => {
     const total = calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
-    const timestamp = new Date().toISOString();
     const scribeName = profile?.full_name || 'Neznámý zapisovatel';
-    
+    const timestamp = new Date().toISOString();
+
     await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
 
     const { error } = await supabase.from('scoresheets').insert({
       participant_id: evaluatingParticipant.id,
-      judge_id: user.id, // Scribe ID
-      judge_name: scribeName, // Kdo to zadal
-      actual_judge_name: actualJudgeName, // Kdo fyzicky stál na obdélníku
+      judge_id: user.id, // ID zapisovatele
+      judge_name: scribeName, // Jméno zapisovatele
+      actual_judge_name: actualJudgeName, // Skutečné jméno rozhodčího (text z pole)
       scored_at: timestamp,
-      signature_hash: 'signed_' + timestamp, // zjednodušeno pro rychlost
+      signature_hash: 'signed',
       score_data: scoreData,
       total_score: total,
       is_dq: isDQ
@@ -654,35 +630,33 @@ export default function Home() {
 
     if (error) alert('Chyba při ukládání: ' + error.message);
     else {
-      await logSystemAction('Uloženo hodnocení zapisovatelem', { rider: evaluatingParticipant.rider_name, total });
-      alert('Hodnocení úspěšně uloženo!');
+      alert('Hodnocení bylo uloženo!');
       setEvaluatingParticipant(null);
       checkUser(); 
     }
   };
 
-  // TISKOVÁ SESTAVA
   const renderPrintableScoresheets = (eventId) => {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
 
-    // Sežadit disciplíny podle sort_order z ceníku
-    const uniqueDisciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
-    const disciplines = uniqueDisciplines.sort((a,b) => {
-      const pA = pricing.find(x => x.discipline_name === a)?.sort_order || 999;
-      const pB = pricing.find(x => x.discipline_name === b)?.sort_order || 999;
-      return pA - pB;
+    // Najdeme disciplíny na startovce a seřadíme je podle sort_order v ceníku
+    const registeredDisciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
+    const disciplines = registeredDisciplines.sort((a,b) => {
+      const sA = pricing.find(x => x.discipline_name === a)?.sort_order || 999;
+      const sB = pricing.find(x => x.discipline_name === b)?.sort_order || 999;
+      return sA - sB;
     });
 
     return (
       <div className="print-area">
         {disciplines.length === 0 ? (
-          <p className="no-print" style={{color: '#666'}}>Žádní jezdci na startovce.</p>
+          <p className="no-print" style={{color: '#666'}}>Zatím nejsou k dispozici žádní jezdci.</p>
         ) : (
           disciplines.map(discipline => {
-            const discPricing = pricing.find(p => p.discipline_name === discipline);
-            const customManeuvers = discPricing?.maneuver_names ? discPricing.maneuver_names.split(',') : [];
-            const maneuversHeaders = Array.from({length: 10}, (_, i) => customManeuvers[i] ? customManeuvers[i].trim() : `${i+1}`);
+            const discData = pricing.find(p => p.discipline_name === discipline);
+            const rawManeuvers = discData?.maneuver_names ? discData.maneuver_names.split(',') : [];
+            const maneuversHeaders = Array.from({length: 10}, (_, i) => rawManeuvers[i] ? rawManeuvers[i].trim() : `${i+1}`);
 
             const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => a.draw_order - b.draw_order);
             if(ridersInDiscipline.length === 0) return null;
@@ -700,17 +674,17 @@ export default function Home() {
                 <table className="wrc-scoresheet" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.95rem' }}>
                   <thead>
                     <tr>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>DRAW</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>EXH#</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '40px', textAlign: 'center' }}>DRAW</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '40px', textAlign: 'center' }}>EXH#</th>
                       <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'left', minWidth: '150px' }}>JEZDEC / KŮŇ</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '4px', width: '40px', fontSize: '0.7rem' }}></th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '4px', width: '30px' }}></th>
                       <th colSpan="10" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', background: '#f5f5f5' }}>MANÉVRY</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '70px', textAlign: 'center' }}>PENALTY<br/>TOTAL</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '80px', textAlign: 'center', fontSize: '1.1rem' }}>FINAL<br/>SCORE</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '60px', textAlign: 'center' }}>PENALTY<br/>TOTAL</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '60px', textAlign: 'center', fontSize: '1.1rem' }}>FINAL</th>
                     </tr>
                     <tr>
                       {maneuversHeaders.map((m, i) => (
-                        <th key={i} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5', fontSize: '0.7rem' }}>{m}</th>
+                        <th key={i} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5', fontSize: '0.75rem', wordWrap: 'break-word', maxWidth: '50px' }}>{m}</th>
                       ))}
                     </tr>
                   </thead>
@@ -725,7 +699,7 @@ export default function Home() {
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.2rem' }}>{r.start_number}</td>
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', borderRight: '1px solid black' }}>
                               <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{r.rider_name}</div>
-                              <div style={{ color: '#444', fontStyle: 'italic' }}>{r.horse_name}</div>
+                              <div style={{ color: '#444', fontStyle: 'italic', fontSize: '0.8rem' }}>{r.horse_name}</div>
                             </td>
                             <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>PEN</td>
                             {[0,1,2,3,4,5,6,7,8,9].map(i => {
@@ -764,7 +738,7 @@ export default function Home() {
                   <div style={{flex: 1}}>
                     <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#555' }}>Rozhodčí / Judge:</p>
                     <h3 style={{ margin: '0 0 5px 0' }}>{signatureObj ? signatureObj.actual_judge_name : '_______________________'}</h3>
-                    <p style={{ margin: '0', fontSize: '0.9rem' }}>V systému zapsal: {signatureObj ? signatureObj.judge_name : '___________________'}</p>
+                    <p style={{ margin: '0', fontSize: '0.9rem', color: '#666' }}>Zapsal(a) do systému: {signatureObj ? signatureObj.judge_name : '_____'}</p>
                   </div>
                 </div>
 
@@ -792,7 +766,7 @@ export default function Home() {
 
   if (currentTab === 'rules') {
     return (
-      <div style={styles.container}>
+            <div style={styles.container}>
         <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
           <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Zpět do Aplikace</button>
           <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
@@ -801,7 +775,7 @@ export default function Home() {
         <div className="no-print" style={{...styles.card, whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: '1.6'}}>
           <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>WESTERNOVÉ HOBBY ZÁVODY POD HUMPRECHTEM</h2>
           <h3 style={{color: '#8d6e63', textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '20px', marginBottom: '30px'}}>PROPOZICE</h3>
-          {globalProps ? globalProps : 'Propozice k závodům zatím nebyly administrátorem vloženy.'}
+          {publicRulesText ? publicRulesText : 'Propozice k závodům zatím nebyly administrátorem vloženy.'}
         </div>
       </div>
     );
@@ -916,7 +890,7 @@ export default function Home() {
               <div>
                 <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
                   <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', paddingBottom: '5px'}}>
-                    <button onClick={() => setAdminSelectedEvent('')} style={!adminSelectedEvent ? styles.activeTab : styles.tab}>Všeobjímající správa</button>
+                    <button onClick={() => setAdminSelectedEvent('')} style={!adminSelectedEvent ? styles.activeTab : styles.tab}>Všeobecná správa</button>
                     <button onClick={() => setAdminSelectedEvent('rules')} style={adminSelectedEvent === 'rules' ? styles.activeTab : styles.tab}>Upravit Propozice</button>
                     {effectiveRole === 'superadmin' && (
                       <button onClick={() => setAdminSelectedEvent('accounts')} style={adminSelectedEvent === 'accounts' ? {...styles.activeTab, background: '#e65100'} : {...styles.tab, background: '#e65100'}}>Vygenerovat Přístupy</button>
@@ -934,7 +908,7 @@ export default function Home() {
                     <div style={styles.adminSection}>
                       <h4 style={{margin: '0 0 10px 0'}}>Vypsání nových termínů závodů</h4>
                       <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
-                        <input type="text" placeholder="Název ročníku (např. Jaro 2026)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
+                        <input type="text" placeholder="Název (např. Jaro 2026)" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
                         <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
                         <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
                           <span style={{fontSize:'0.8rem'}}>Od čísla:</span>
@@ -974,14 +948,14 @@ export default function Home() {
 
                     <div style={styles.adminSection}>
                       <h4 style={{margin: '0 0 10px 0'}}>Disciplíny, Ceník a Tvorba kolonek manévrů</h4>
-                      <p style={{fontSize: '0.8rem', color:'#666'}}>Vyplňte seznam manévrů oddělený čárkou, aby se tiskl na Scoresheetu. (např: "Kruh P, Spin, Stop a Couvání"). Pokud necháte prázdné, zapíše se Manévr 1..10</p>
+                      <p style={{fontSize: '0.8rem', color:'#666'}}>Vyplňte seznam manévrů oddělený čárkou, aby se tiskl na Scoresheetu. (např: "Kruh P, Spin, Stop, Couvání"). Pokud necháte prázdné, zapíše se Manévr 1..10</p>
                       <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
-                        <input type="number" placeholder="Pořadí" value={newDiscSortOrder} onChange={e => setNewDiscSortOrder(e.target.value)} style={{...styles.inputSmall, width: '70px'}} title="Tímto se disciplíny seřadí u Hlasatele a na Tisk"/>
+                        <input type="number" placeholder="Pořadí" value={newDiscSort} onChange={e => setNewDiscSort(e.target.value)} style={{...styles.inputSmall, width: '70px'}} title="Tímto se disciplíny seřadí u Hlasatele a na Tisk"/>
                         <input type="text" placeholder="Nová disciplína (přesně podle propozic)" value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
                         <input type="number" placeholder="Cena Kč" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
                         <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
-                          <label style={{fontSize: '0.85rem'}}>Vzor úlohy (nepovinné):</label>
-                          <input type="file" accept=".pdf,image/*" onChange={e => setPatternFile(e.target.files[0])} style={{...styles.inputSmall, width: 'auto'}} />
+                          <label style={{fontSize: '0.85rem'}}>Vzor úlohy:</label>
+                          <input type="file" accept=".pdf,image/*" onChange={e => setPatternFile(e.target.files[0])} style={{...styles.inputSmall, width: '150px'}} />
                         </div>
                         <button type="submit" style={{...styles.btnSave, background: '#0277bd'}}>Přidat položku ceníku</button>
                       </form>
@@ -1002,7 +976,7 @@ export default function Home() {
                               <tr key={p.id} style={{borderBottom: '1px solid #eee', background: editingPricingId === p.id ? '#fff9c4' : 'transparent'}}>
                                 {editingPricingId === p.id ? (
                                   <>
-                                    <td style={{padding: '10px'}}><input type="number" value={editDiscSortOrder} onChange={e => setEditDiscSortOrder(e.target.value)} style={{...styles.inputSmall, width: '50px'}} /></td>
+                                    <td style={{padding: '10px'}}><input type="number" value={editDiscSort} onChange={e => setEditDiscSort(e.target.value)} style={{...styles.inputSmall, width: '50px'}} /></td>
                                     <td style={{padding: '10px', fontWeight: 'bold'}}>{p.discipline_name}</td>
                                     <td style={{padding: '10px'}}><input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '70px'}} /></td>
                                     <td style={{padding: '10px'}}>
@@ -1044,12 +1018,12 @@ export default function Home() {
                       <h3 style={{marginTop: 0, color: '#e65100'}}>Úprava oficiálních propozic</h3>
                       <p>Zde upravte kompletní znění propozic na sezónu. Změna se promítne všem ihned na webu.</p>
                       <textarea 
-                        value={editPropositionsText} 
-                        onChange={e => setEditPropositionsText(e.target.value)} 
+                        value={editRulesText} 
+                        onChange={e => setEditRulesText(e.target.value)} 
                         rows="25" 
                         style={{width: '100%', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '1rem', fontFamily: 'inherit', resize: 'vertical'}} 
                       />
-                      <button onClick={handleUpdatePropositions} style={{...styles.btnSave, background: '#e65100', marginTop: '15px', fontSize: '1.1rem', padding: '10px 20px'}}>Uložit propozice a zvěřejnit pro všechny</button>
+                      <button onClick={handleUpdateRules} style={{...styles.btnSave, background: '#e65100', marginTop: '15px', fontSize: '1.1rem', padding: '10px 20px'}}>Uložit propozice a zvěřejnit pro všechny</button>
                     </div>
                   </div>
                 )}
@@ -1057,15 +1031,15 @@ export default function Home() {
                 {adminSelectedEvent === 'accounts' && effectiveRole === 'superadmin' && (
                   <div className="no-print">
                     <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', margin: '20px 0'}}>
-                      <h3 style={{color: '#e65100', marginTop: 0}}>Generátor přístupů pro personál k obsluze systému</h3>
+                      <h3 style={{color: '#e65100', marginTop: 0}}>Generátor přístupů pro personál</h3>
                       <form onSubmit={handleCreateAccount} style={{display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '400px'}}>
-                        <input type="email" placeholder="E-mailová adresa člena personálu" value={newAccountEmail} onChange={e => setNewAccountEmail(e.target.value)} style={styles.inputSmall} required/>
+                        <input type="email" placeholder="E-mail personálu" value={newAccountEmail} onChange={e => setNewAccountEmail(e.target.value)} style={styles.inputSmall} required/>
                         <select value={newAccountRole} onChange={e => setNewAccountRole(e.target.value)} style={styles.inputSmall}>
-                          <option value="judge">Zapisovatel na pískovišti</option>
-                          <option value="speaker">Hlasatel nahoře ve věži</option>
-                          <option value="admin">Další Administrátor závodu</option>
+                          <option value="judge">Zapisovatel (u rozhodčího)</option>
+                          <option value="speaker">Hlasatel (na věži)</option>
+                          <option value="admin">Administrátor závodu</option>
                         </select>
-                        <button type="submit" style={{...styles.btnSave, background: '#e65100'}}>Odeslat heslo a právo na tento e-mail</button>
+                        <button type="submit" style={{...styles.btnSave, background: '#e65100'}}>Odeslat heslo na e-mail</button>
                       </form>
                     </div>
                   </div>
@@ -1076,14 +1050,14 @@ export default function Home() {
                     
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                       <div>
-                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz (vidí jen Hlasatel!):</strong>
+                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Rychlý Vzkaz (vidí jen Hlasatel a Rozhodčí):</strong>
                         <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádný vzkaz.'}</span>
                       </div>
-                      <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Poslat vzkaz spíkrovi</button>
+                      <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Poslat/Upravit vzkaz</button>
                     </div>
 
                     <div className="no-print" style={{marginBottom: '20px', background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc'}}>
-                      <strong style={{color: '#333', display: 'block', marginBottom: '10px'}}>📋 Časový Plán ročníku (Vidí úplně Všichni - odřádkování je možné klávesou Enter):</strong>
+                      <strong style={{color: '#333', display: 'block', marginBottom: '10px'}}>📋 Časový Plán (Vidí všichni - odřádkování přes Enter):</strong>
                       <textarea 
                          value={events.find(e => e.id === adminSelectedEvent)?.schedule || ''} 
                          onChange={(e) => {
@@ -1097,35 +1071,35 @@ export default function Home() {
                     </div>
 
                     <div className="no-print" style={{marginBottom: '20px', background: '#e1f5fe', padding: '20px', borderRadius: '8px', border: '2px solid #0288d1'}}>
-                      <h4 style={{marginTop: 0, color: '#0288d1', marginBottom: '10px'}}>Registrace jezdce na místě u stolku s Adminem (Hostovský profil)</h4>
+                      <h4 style={{marginTop: 0, color: '#0288d1', marginBottom: '10px'}}>Registrace jezdce na místě u stolku (Host)</h4>
                       <form onSubmit={handleAdminHostRegistration} style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                        <input type="text" placeholder="Jméno jezdce" value={adminHostRider} onChange={e=>setAdminHostRider(e.target.value)} required style={styles.inputSmall}/>
-                        <select value={adminHostAge} onChange={e=>setAdminHostAge(e.target.value)} style={styles.inputSmall}>
-                          <option value="Open">Open</option>
-                          <option value="Začátečníci">Začátečníci - Rookies</option>
-                          <option value="Pokročilí">Pokročilí - Advanced</option>
+                        <input type="text" placeholder="Jméno jezdce" value={hostRiderName} onChange={e=>setHostRiderName(e.target.value)} required style={styles.inputSmall}/>
+                        <select value={hostAgeCat} onChange={e=>setHostAgeCat(e.target.value)} style={styles.inputSmall}>
+                          <option value="18+">18 a více let (Open)</option>
+                          <option value="Pokročilí">Pokročilí (Mládež)</option>
+                          <option value="Začátečníci">Začátečníci (Mládež)</option>
                           <option value="Děti">Děti do 12</option>
                           <option value="Hříbata">Hříbata</option>
                         </select>
-                        <input type="text" placeholder="Jméno Koně" value={adminHostHorse} onChange={e=>setAdminHostHorse(e.target.value)} required style={styles.inputSmall}/>
-                        <select value={adminHostDisc} onChange={e=>setAdminHostDisc(e.target.value)} required style={styles.inputSmall}>
-                          <option value="">Zvolte disciplínu ze seznamu</option>
+                        <input type="text" placeholder="Jméno Koně" value={hostHorseName} onChange={e=>setHostHorseName(e.target.value)} required style={styles.inputSmall}/>
+                        <select value={hostDiscipline} onChange={e=>setHostDiscipline(e.target.value)} required style={styles.inputSmall}>
+                          <option value="">Zvolte disciplínu</option>
                           {pricing.map(p => <option key={p.id} value={p.discipline_name}>{p.discipline_name}</option>)}
                         </select>
-                        <button type="submit" style={{...styles.btnSave, background: '#0288d1'}}>Hodit na Startku</button>
+                        <button type="submit" style={{...styles.btnSave, background: '#0288d1'}}>Zapsat na Startku</button>
                       </form>
                     </div>
 
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff9c4', padding: '20px', borderRadius: '8px', border: '2px solid #fbc02d', textAlign: 'center'}}>
                       <h3 style={{margin: '0 0 10px 0', color: '#f57f17'}}>Ceremoniální konec závodů</h3>
-                      <button onClick={() => handleEndCompetitionAndSendResults(adminSelectedEvent)} style={{...styles.btnSave, background: '#fbc02d', color: '#000', fontSize: '1.2rem', padding: '15px 30px'}}>🏆 Definitivně Ukončit a vyhlásit výsledky s medailemi na síť Telegram</button>
+                      <button onClick={() => handleEndCompetitionAndSendResults(adminSelectedEvent)} style={{...styles.btnSave, background: '#fbc02d', color: '#000', fontSize: '1.2rem', padding: '15px 30px'}}>🏆 Definitivně Ukončit a vyhlásit na Telegramu</button>
                     </div>
 
                     <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                        <h4 className="no-print" style={{margin: 0}}>Velká tabule se startovní listinou a stavem plateb</h4>
-                        <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Předběžná startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
-                        <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Tisknout rychlou Startku z tohoto zobrazení</button>
+                        <h4 className="no-print" style={{margin: 0}}>Předběžná startovka</h4>
+                        <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
+                        <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Tisknout Startku</button>
                       </div>
                       <div style={{overflowX: 'auto'}}>
                         <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
@@ -1137,7 +1111,7 @@ export default function Home() {
                               <th style={{padding: '8px'}}>Jezdec</th>
                               <th style={{padding: '8px'}}>Kůň</th>
                               <th style={{padding: '8px'}}>Disciplína</th>
-                              <th className="no-print" style={{padding: '8px'}}>Poznámka od placení</th>
+                              <th className="no-print" style={{padding: '8px'}}>Pozn. Platba</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1154,8 +1128,8 @@ export default function Home() {
                                     type="text" 
                                     defaultValue={r.payment_note || ''} 
                                     onBlur={(e) => updatePaymentNote(r.id, e.target.value, r.rider_name)} 
-                                    placeholder="Připsat hotově/účet..."
-                                    style={{padding: '5px', width: '140px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
+                                    placeholder="např. Hotově"
+                                    style={{padding: '5px', width: '120px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
                                   />
                                 </td>
                               </tr>
@@ -1167,19 +1141,17 @@ export default function Home() {
 
                     <div className={printMode === 'startlist' ? 'no-print' : 'print-area'} style={{...styles.adminSection, border: printMode ? 'none' : '1px solid #ddd'}}>
                       <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                        <h4 style={{margin: 0}}>Velké Scoresheety vytvořené k tisku archů pro Rozhodčí na odškrtávání fixem</h4>
-                        <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Generátor stránek pro tisk Scoresheetů</button>
+                        <h4 style={{margin: 0}}>Velké Scoresheety k tisku (pro rozhodčího na odškrtnutí)</h4>
+                        <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Tisk Scoresheetů</button>
                       </div>
-                      
                       {renderPrintableScoresheets(adminSelectedEvent)}
-
                     </div>
                   </div>
                 )}
                 
                 {effectiveRole === 'superadmin' && !adminSelectedEvent && (
                   <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
-                    <h4 style={{margin: '0 0 10px 0'}}>Logy celého blbého systému pro audit</h4>
+                    <h4 style={{margin: '0 0 10px 0'}}>Logy systému pro audit</h4>
                     <div style={{maxHeight: '300px', overflowY: 'auto', background: '#fff', padding: '10px'}}>
                       {systemLogs.length === 0 ? <p>Žádné záznamy.</p> : (
                         <ul style={{listStyleType: 'none', padding: 0, margin: 0, fontSize: '0.85rem'}}>
@@ -1202,16 +1174,16 @@ export default function Home() {
             {effectiveRole === 'judge' && (
               <div className={printMode ? 'print-area' : ''}>
                 <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', borderBottom: '3px solid #0277bd', paddingBottom: '10px', marginBottom: '20px'}}>
-                  <h3 style={{marginTop: 0, color: '#0277bd', fontSize: '1.8rem'}}>Tabelátor a zadávání známek z Pískoviště (Zapisovatel)</h3>
+                  <h3 style={{marginTop: 0, color: '#0277bd', fontSize: '1.6rem'}}>Zadávání známek (Zapisovatel)</h3>
                 </div>
 
                 {judgeEvent && !evaluatingParticipant && (
                   <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                     <div>
-                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní rychlý vzkaz pro Spíkra nahoru:</strong>
+                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz (společný se Spíkrem):</strong>
                       <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
                     </div>
-                    <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Přepsat vzkaz on-the-fly</button>
+                    <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit vzkaz</button>
                   </div>
                 )}
                 
@@ -1228,13 +1200,13 @@ export default function Home() {
                         <p style={{fontSize: '1.1rem', marginBottom: '20px', color: '#666'}}>Kůň: <strong>{evaluatingParticipant.horse_name}</strong></p>
 
                         <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #ccc'}}>
-                          <label style={{display: 'block', fontWeight: 'bold', marginBottom: '5px'}}>Skutečné Jméno Rozhodčího z obdélníku (Tiskne se dolu na arch):</label>
-                          <input type="text" value={actualJudgeName} onChange={e => setActualJudgeName(e.target.value)} style={{...styles.input, marginTop: 0, border: '2px solid #ccc'}} placeholder="Diktuje mi: Ing. Jan Novák..." />
+                          <label style={{display: 'block', fontWeight: 'bold', marginBottom: '5px'}}>Skutečné Jméno Rozhodčího (Diktujícího):</label>
+                          <input type="text" value={actualJudgeName} onChange={e => setActualJudgeName(e.target.value)} style={{...styles.input, marginTop: 0, border: '2px solid #ccc'}} placeholder="Např. Ing. Jan Novák" />
                         </div>
                         
                         <div style={{background: '#ffe0b2', padding: '15px', borderRadius: '8px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px'}}>
                            <input type="checkbox" checked={isDQ} onChange={e => setIsDQ(e.target.checked)} id="dqCheck" style={{width: '25px', height: '25px'}} />
-                           <label htmlFor="dqCheck" style={{color: '#d84315', fontWeight: 'bold', fontSize: '1.4rem', cursor: 'pointer'}}>JEZDEC BYL DISKVALIFIKOVÁNÝ (DQ)</label>
+                           <label htmlFor="dqCheck" style={{color: '#d84315', fontWeight: 'bold', fontSize: '1.2rem', cursor: 'pointer'}}>DISKVALIFIKACE (DQ)</label>
                         </div>
 
                         {!isDQ && (
@@ -1242,12 +1214,15 @@ export default function Home() {
                             <div>
                               <h4 style={{borderBottom: '2px solid #4caf50', paddingBottom: '5px'}}>➕ Známky za Manévry</h4>
                               {maneuverScores.map((score, index) => {
-                                const useShowmanshipOpts = isShowmanship(evaluatingParticipant.discipline);
+                                const discPricing = pricing.find(p => p.discipline_name === evaluatingParticipant.discipline);
+                                const customManeuvers = discPricing?.maneuver_names ? discPricing.maneuver_names.split(',') : [];
+                                const maneuverName = customManeuvers[index] ? customManeuvers[index].trim() : `Box č. ${index + 1}`;
+                                const isShow = (evaluatingParticipant.discipline.toLowerCase().includes('showmanship') || evaluatingParticipant.discipline.toLowerCase().includes('horsemanship'));
                                 return (
                                   <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center', background: '#f1f8e9', padding: '8px', borderRadius: '4px'}}>
-                                    <strong>Box č. {index + 1}</strong>
+                                    <strong>{maneuverName}</strong>
                                     <select value={score} onChange={(e) => { const x = [...maneuverScores]; x[index] = e.target.value; setManeuverScores(x); }} style={{padding: '8px', borderRadius: '4px', border: '1px solid #ccc', fontWeight: 'bold', fontSize: '1.2rem', width: '130px'}}>
-                                      {useShowmanshipOpts ? (
+                                      {isShow ? (
                                         <>
                                           <option value="3">+3 (Excelentní)</option>
                                           <option value="2">+2 (Velmi dobré)</option>
@@ -1255,7 +1230,7 @@ export default function Home() {
                                           <option value="0">0 (Průměrné)</option>
                                           <option value="-1">-1 (Slabé)</option>
                                           <option value="-2">-2 (Velmi slabé)</option>
-                                          <option value="-3">-3 (Ext. špatné)</option>
+                                          <option value="-3">-3 (Extrámně špatné)</option>
                                         </>
                                       ) : (
                                         <>
@@ -1282,7 +1257,7 @@ export default function Home() {
                                     type="number" 
                                     min="0" 
                                     step="0.5" 
-                                    value={penalty} 
+                                    value={penalty || ''} 
                                     onChange={(e) => { const x = [...penaltyScores]; x[index] = e.target.value || 0; setPenaltyScores(x); }} 
                                     style={{padding: '8px', width: '80px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center', fontWeight: 'bold', fontSize: '1.2rem'}}
                                   />
@@ -1293,13 +1268,13 @@ export default function Home() {
                         )}
 
                         <div style={{marginTop: '30px', padding: '15px', background: '#e1f5fe', borderRadius: '8px', textAlign: 'right', border: '3px solid #0277bd'}}>
-                          <span style={{fontSize: '1.2rem', color: '#000'}}>Základ: {isShowmanship(evaluatingParticipant.discipline) ? 'Začíná bodovat na 70 podle pravidel' : 'Standard WRC 70'} | </span>
-                          <strong style={{fontSize: '1.8rem', color: '#000'}}>AUTO-SOUČET Z DAT: {calculateTotalScore()}</strong>
+                          <span style={{fontSize: '1.2rem', color: '#000'}}>Základ WRC: 70 | </span>
+                          <strong style={{fontSize: '1.8rem', color: '#000'}}>AUTO-SOUČET: {calculateTotalScore() === -999 ? 'DQ' : calculateTotalScore()}</strong>
                         </div>
 
                         <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
-                          <button onClick={saveScore} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.2rem'}}>Potvrdit, Zapsat a Spočítat</button>
-                          <button onClick={() => setEvaluatingParticipant(null)} style={{...styles.btnOutline, flex: 0.5, marginTop: 0}}>Uložit a Zpět bez změny</button>
+                          <button onClick={saveScore} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.2rem'}}>Potvrdit a zapsat hodnocení</button>
+                          <button onClick={() => setEvaluatingParticipant(null)} style={{...styles.btnOutline, flex: 0.5, marginTop: 0}}>Zpět bez změny</button>
                         </div>
                       </div>
 
@@ -1314,17 +1289,17 @@ export default function Home() {
                     </div>
                   ) : (
                     <div>
-                      <label style={{...styles.label, fontSize: '1.2rem'}}>Otevřít zamčený závod s hotovou startkou:</label>
-                      <select style={{...styles.input, fontSize: '1.2rem', padding: '15px'}} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); handleJudgeDisciplineChange(e.target.value, ''); }}>
-                        <option value="">-- Zvolte zamčený připravený závod --</option>
+                      <label style={{...styles.label, fontSize: '1.1rem'}}>1. Otevřít zamčený probíhající závod:</label>
+                      <select style={{...styles.input, fontSize: '1.1rem', padding: '12px'}} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); handleJudgeDisciplineChange(e.target.value, ''); }}>
+                        <option value="">-- Zvolte závod ke spravování --</option>
                         {events.filter(ev => ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
                       </select>
 
                       {judgeEvent && (
                         <div style={{marginTop: '15px'}}>
-                          <label style={{...styles.label, fontSize: '1.2rem'}}>Vyberte disciplínu před sebou na obdélníku (Tohle se ukáže i Hlasateli nahoře!):</label>
-                          <select style={{...styles.input, fontSize: '1.2rem', padding: '15px', background: '#e1f5fe'}} value={judgeDiscipline} onChange={e => handleJudgeDisciplineChange(judgeEvent, e.target.value)}>
-                            <option value="">-- Bude chvíli ticho a čeká se --</option>
+                          <label style={{...styles.label, fontSize: '1.1rem'}}>2. Vyberte disciplínu před sebou na obdélníku (Ukáže se to i Hlasateli nahoře!):</label>
+                          <select style={{...styles.input, fontSize: '1.1rem', padding: '12px', background: '#e1f5fe'}} value={judgeDiscipline} onChange={e => handleJudgeDisciplineChange(judgeEvent, e.target.value)}>
+                            <option value="">-- Zatím nepípáme, čeká se --</option>
                             {activeJudgeDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
                           </select>
                         </div>
@@ -1333,8 +1308,8 @@ export default function Home() {
                       {judgeEvent && judgeDiscipline && (
                         <div style={{marginTop: '30px'}}>
                           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #0277bd', paddingBottom: '10px'}}>
-                            <h4 style={{margin: 0, fontSize: '1.5rem'}}>Jízdy a startovka online uličky z počítače: {judgeDiscipline}</h4>
-                            <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '10px 20px', fontWeight: 'bold'}}>📣 Zapískat: Konec disciplíny na síť dole</button>
+                            <h4 style={{margin: 0, fontSize: '1.3rem'}}>Startovka k hodnocení: {judgeDiscipline}</h4>
+                            <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '10px 15px', fontWeight: 'bold'}}>📣 Zapískat: Konec disciplíny pro Hlasatele a jezdce</button>
                           </div>
                           
                           <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '1.1rem'}}>
@@ -1364,7 +1339,7 @@ export default function Home() {
                                           {scoreObj.is_dq ? 'Opravit (DQ)' : `Opravit arch (${scoreObj.total_score})`}
                                         </button>
                                       ) : (
-                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd', padding: '10px 20px', fontWeight: 'bold', fontSize: '1.1rem', width: '100%'}}>Zadat Novou Odfixovanou Jízdu</button>
+                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd', padding: '10px 15px', fontWeight: 'bold'}}>Zadat Jízdu</button>
                                       )}
                                     </td>
                                   </tr>
@@ -1381,10 +1356,10 @@ export default function Home() {
                 </div>
 
                 {judgeEvent && !evaluatingParticipant && (
-                  <div className={printMode === 'scoresheets' ? 'print-area' : 'no-print'} style={{...styles.adminSection, marginTop: '50px', border: printMode ? 'none' : '1px solid #ddd'}}>
+                  <div className={printMode === 'scoresheets' ? 'print-area' : 'no-print'} style={{...styles.adminSection, marginTop: '30px', border: printMode ? 'none' : '1px solid #ddd'}}>
                     <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                      <h4 style={{margin: 0}}>Velké odškrtávací Scoresheety zkopírované k bezdálničnímu tisku</h4>
-                      <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Tisk Všech Disciplín PDF (Archivéř)</button>
+                      <h4 style={{margin: 0}}>Velké Scoresheety pro tisk k odškrtávání</h4>
+                      <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Tisk PDF Archů</button>
                     </div>
                     {renderPrintableScoresheets(judgeEvent)}
                   </div>
@@ -1396,20 +1371,20 @@ export default function Home() {
             {effectiveRole === 'speaker' && (
               <div className="no-print">
                 <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
-                  <h3 style={{marginTop: 0, color: '#5d4037'}}>Oko Hlasatele (Čte ze zdi u Rozhodčích a Vedení)</h3>
+                  <h3 style={{marginTop: 0, color: '#5d4037'}}>Panel Hlasatele (Zrcadlo od Rozhodčích a Vedení)</h3>
                 </div>
                 
                 {speakerEventId ? (
                   <div>
                     <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px', whiteSpace: 'pre-wrap'}}>
-                      <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Dnešní Všeobecný Plán závodů organizace (Veze si to z adminu):</strong>
-                      <span style={{fontSize: '1.2rem'}}>{lockedEvent?.schedule || 'Harmonogram ještě nebyl odšpuntován a nalit.'}</span>
+                      <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Dnešní Časový Plán:</strong>
+                      <span style={{fontSize: '1.1rem'}}>{lockedEvent?.schedule || 'Harmonogram ještě nebyl vložen.'}</span>
                     </div>
 
                     {lockedEvent?.speaker_message && (
                       <div style={{background: '#ffe0b2', border: '4px solid #e65100', padding: '20px', borderRadius: '12px', marginTop: '10px', marginBottom: '30px', textAlign: 'center'}}>
-                        <h3 style={{margin: '0 0 10px 0', color: '#e65100', textTransform: 'uppercase', letterSpacing: '2px'}}>🚨 Alarm (Vzkazy ze stolu na věž nebo na plac):</h3>
-                        <p style={{fontSize: '2rem', fontWeight: 'bold', margin: 0, color: '#e65100'}}>
+                        <h3 style={{margin: '0 0 10px 0', color: '#e65100', textTransform: 'uppercase', letterSpacing: '2px'}}>🚨 Vzkaz ze stolu pro věž:</h3>
+                        <p style={{fontSize: '1.8rem', fontWeight: 'bold', margin: 0, color: '#e65100'}}>
                           {lockedEvent?.speaker_message}
                         </p>
                       </div>
@@ -1417,19 +1392,19 @@ export default function Home() {
 
                     {!speakerDiscipline ? (
                       <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '3px dashed #ccc'}}>
-                        <h2 style={{color: '#555', margin: 0}}>Uklidni spíkra - pískoviště zatím nekliklo na "Přepnout obrazovku nahoře"</h2>
-                        <p style={{fontSize: '1.2rem', color: '#888'}}>Jakmile zapisovatel klikne na Zvolte disciplínu, ukáže se ti Tady živá tabule a ty budeš hlásit dál do mikrofonu!</p>
+                        <h2 style={{color: '#555', margin: 0}}>Čekáme na pískoviště - zatím nebyla odpípnuta disciplína.</h2>
+                        <p style={{fontSize: '1.1rem', color: '#888'}}>Jakmile zapisovatel vybere disciplínu, objeví se zde živá tabule a pořadí startů.</p>
                       </div>
                     ) : (
                       <div style={{marginTop: '30px'}}>
-                        <h2 style={{fontSize: '2.5rem', textAlign: 'center', color: '#5d4037', borderBottom: '4px solid #5d4037', paddingBottom: '15px', textTransform: 'uppercase'}}>🎤 ŽIVÁ KAMERA: {speakerDiscipline}</h2>
+                        <h2 style={{fontSize: '2rem', textAlign: 'center', color: '#5d4037', borderBottom: '4px solid #5d4037', paddingBottom: '15px', textTransform: 'uppercase'}}>🎤 NA TRASE: {speakerDiscipline}</h2>
                         <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
                           <thead>
-                            <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.3rem'}}>
-                              <th style={{padding: '15px'}}>Pravidlo Draw</th>
-                              <th style={{padding: '15px'}}>EXH. Záda</th>
-                              <th style={{padding: '15px'}}>Kdo nám jede (Jezdec+Kůň)</th>
-                              <th style={{padding: '15px', textAlign: 'right'}}>Nahozeno Systémem</th>
+                            <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
+                              <th style={{padding: '15px'}}>Draw</th>
+                              <th style={{padding: '15px'}}>Záda</th>
+                              <th style={{padding: '15px'}}>Jezdec (Kategorie) / Kůň</th>
+                              <th style={{padding: '15px', textAlign: 'right'}}>Skóre zapsané systémem</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1438,20 +1413,20 @@ export default function Home() {
                               const isScored = !!scoreObj;
                               
                               return (
-                                <tr key={r.id} style={{borderBottom: '3px solid #eee', fontSize: '1.6rem', background: isScored ? '#e8f5e9' : '#fff'}}>
-                                  <td style={{padding: '15px', fontWeight: 'bold', color: '#795548'}}>{r.draw_order}. ve frontě</td>
-                                  <td style={{padding: '15px', fontWeight: '900', fontSize: '2rem'}}>{r.start_number}</td>
+                                <tr key={r.id} style={{borderBottom: '3px solid #eee', fontSize: '1.4rem', background: isScored ? '#e8f5e9' : '#fff'}}>
+                                  <td style={{padding: '15px', fontWeight: 'bold', color: '#795548'}}>{r.draw_order}.</td>
+                                  <td style={{padding: '15px', fontWeight: '900', fontSize: '1.8rem'}}>{r.start_number}</td>
                                   <td style={{padding: '15px'}}>
                                     <div style={{fontWeight: 'bold'}}>{r.rider_name} <span style={{fontSize: '1rem', color: '#666', fontWeight: 'normal'}}>({r.age_category})</span></div>
-                                    <div style={{fontSize: '1.2rem', color: '#5d4037', marginTop: '5px'}}>{r.horse_name}</div>
+                                    <div style={{fontSize: '1.1rem', color: '#5d4037', marginTop: '5px'}}>{r.horse_name}</div>
                                   </td>
                                   <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: isScored ? '#2e7d32' : '#ccc'}}>
-                                    {isScored ? (scoreObj.is_dq ? 'DQ' : `${scoreObj.total_score} Point.`) : 'Nezapsáno (JEDE)'}
+                                    {isScored ? (scoreObj.is_dq ? 'DQ' : `${scoreObj.total_score} Bodů`) : 'Nezapsáno (Na trati / Čeká)'}
                                   </td>
                                 </tr>
                               );
                             }) : (
-                              <tr><td colSpan="4" style={{padding: '20px', textAlign: 'center', fontSize: '1.2rem'}}>V této okénku teď nikdo zapsán.</td></tr>
+                              <tr><td colSpan="4" style={{padding: '20px', textAlign: 'center', fontSize: '1.2rem'}}>V této disciplíně teď nefiguruje žádný jezdec.</td></tr>
                             )}
                           </tbody>
                         </table>
@@ -1459,7 +1434,7 @@ export default function Home() {
                     )}
                   </div>
                 ) : (
-                  <p style={{textAlign: 'center', padding: '30px', color: '#666', border: '1px solid #ddd', borderRadius: '8px', fontSize: '1.2rem'}}>Aktuálně není k nalezení žádná platná linková organizace. Dej pivo a oddej se sluníčku.</p>
+                  <p style={{textAlign: 'center', padding: '30px', color: '#666', border: '1px solid #ddd', borderRadius: '8px', fontSize: '1.2rem'}}>Aktuálně není k nalezení žádný probíhající závod.</p>
                 )}
               </div>
             )}
@@ -1470,14 +1445,14 @@ export default function Home() {
                 
                 <div style={{display: 'flex', gap: '10px', overflowX: 'auto', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
                   <button onClick={() => setPlayerTab('main')} style={playerTab === 'main' ? styles.activeTab : styles.tab}>Nové přihlášky na Závod + Moje Jízdy</button>
-                  <button onClick={() => setPlayerTab('telegram')} style={playerTab === 'telegram' ? {...styles.activeTab, background: '#0288d1'} : {...styles.tab, background: '#0288d1'}}>📱 Trakce o dění a Živé info z hlášení Telegram</button>
+                  <button onClick={() => setPlayerTab('telegram')} style={playerTab === 'telegram' ? {...styles.activeTab, background: '#0288d1'} : {...styles.tab, background: '#0288d1'}}>📱 Trakce a Živé info Telegram</button>
                 </div>
 
                 {playerTab === 'telegram' && (
                   <div style={{background: '#e3f2fd', padding: '30px 20px', borderRadius: '8px', border: '1px solid #0288d1', textAlign: 'center', margin: '20px 0'}}>
-                    <h2 style={{color: '#0288d1', marginTop: 0}}>📱 Sledujte hlášení, plán a okamžité výsledky z arény!</h2>
-                    <p style={{fontSize: '1.1rem', color: '#333', marginBottom: '20px'}}>Sleduj naši oficiální vývěsku na Telegramu a neokradeš se o nic z dění, i když piješ u okna limonádu.</p>
-                    <a href="https://t.me/jezdecihump" target="_blank" rel="noopener noreferrer" style={{...styles.btnSave, background: '#0288d1', textDecoration: 'none', display: 'inline-block', fontSize: '1.2rem', padding: '15px 30px', fontWeight: 'bold'}}>Připíchnout mě z webu na Telegram</a>
+                    <h2 style={{color: '#0288d1', marginTop: 0}}>📱 Sledujte hlášení, plán a okamžité výsledky!</h2>
+                    <p style={{fontSize: '1.1rem', color: '#333', marginBottom: '20px'}}>Sleduj naši oficiální vývěsku na Telegramu, ať nejsi o nic ochuzený.</p>
+                    <a href="https://t.me/+xZ7MOtlAaX05YzA0" target="_blank" rel="noopener noreferrer" style={{...styles.btnSave, background: '#0288d1', textDecoration: 'none', display: 'inline-block', fontSize: '1.2rem', padding: '15px 30px', fontWeight: 'bold'}}>Sledovat Telegram Skupinu</a>
                   </div>
                 )}
 
@@ -1488,52 +1463,52 @@ export default function Home() {
                       
                       <div style={{display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) minmax(250px, 1fr)', gap: '20px', marginBottom: '20px', marginTop: '15px'}}>
                         <div>
-                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>Vyberte termín a závod z kalendáře:</label>
+                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>Vyberte aktuálně vypsaný závod z kalendáře:</label>
                           <select style={{...styles.input, border: '2px solid #ffb300'}} value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
-                            <option value="">-- HumpRace Terminy z okolí --</option>
+                            <option value="">-- Termíny k přihlašování --</option>
                             {events.filter(ev => !ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name} ({new Date(ev.event_date).toLocaleDateString('cs-CZ')})</option>)}
                           </select>
                         </div>
                         <div>
                           <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>Jak se Jezdec reálně jmenuje:</label>
-                          <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #ffb300'}} placeholder="Napiš jméno, které pojede o medaily..." />
+                          <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #ffb300'}} placeholder="Napiš jméno..." />
                         </div>
                       </div>
 
                       <div style={{display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) minmax(250px, 1fr)', gap: '20px', marginBottom: '20px'}}>
                         <div>
-                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>A co to je k vánocům za ročník pro body? (Věková Kateg):</label>
+                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>Věková Kategorie jezdce:</label>
                           <select value={riderAgeCategory} onChange={e => setRiderAgeCategory(e.target.value)} style={{...styles.input, border: '2px solid #ffb300'}}>
-                            <option value="Open">Otevřená - Open (Dospělá ci jina smiska)</option>
-                            <option value="Pokročilí">Pokročilí - Advanced (Mládež do 18 let)</option>
-                            <option value="Začátečníci">Začátečníci - Rookies (Mládež do 14 let)</option>
+                            <option value="18+">18 a více let (Open)</option>
+                            <option value="Pokročilí">Pokročilí (Mládež - Advanced)</option>
+                            <option value="Začátečníci">Začátečníci (Mládež - Rookies)</option>
                             <option value="Děti">Děti do 12 let</option>
-                            <option value="Hříbata">Hříbátka do 3 let</option>
+                            <option value="Hříbata">Hříbata</option>
                           </select>
                         </div>
                         <div>
-                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>S kterým Koněm pojedu na arénu:</label>
+                          <label style={{...styles.label, marginTop: 0, color: '#e65100'}}>Koník vybraný pro tenhle den:</label>
                           <select style={{...styles.input, border: '2px solid #ffb300'}} value={selectedHorse} onChange={e => setSelectedHorse(e.target.value)}>
-                            <option value="">-- Můj kůň uložený v bedně --</option>
+                            <option value="">-- Můj uložený kůň z DB --</option>
                             {myHorses.map(h => <option key={h.id} value={h.name}>{h.name}</option>)}
-                            <option value="new">+ Přihazuju zbrusu Nového Koně do bedny...</option>
+                            <option value="new">+ Registruji si zbrusu nového koně do stáje...</option>
                           </select>
                         </div>
                       </div>
 
                       {selectedHorse === 'new' && (
                         <div style={{background: '#ffecb3', padding: '15px', borderRadius: '8px', border: '1px dashed #ffb300', marginBottom: '20px'}}>
-                          <label style={{fontWeight: 'bold', color: '#e65100'}}>Identifikátory pro tohohle zvířete (Pamatuje si to do příště):</label>
+                          <label style={{fontWeight: 'bold', color: '#e65100'}}>Doplňující údaje zvířete (Pamatuje si to dál profil):</label>
                           <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '10px'}}>
                             <input type="text" placeholder="Papírové Jméno koně..." value={newHorseName} onChange={e => setNewHorseName(e.target.value)} style={{...styles.inputSmall, flex: 2, minWidth: '150px'}} />
-                            <input type="number" placeholder="Rok Narození..." value={newHorseYear} onChange={e => setNewHorseYear(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '130px'}} />
-                            <input type="text" placeholder="Licenční průkaz..." value={newHorseLicense} onChange={e => setNewHorseLicense(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '130px'}} />
+                            <input type="number" placeholder="Rok Narození..." value={newHorseBirthYear} onChange={e => setNewHorseBirthYear(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '110px'}} />
+                            <input type="text" placeholder="Licenční průkaz koně..." value={newHorseLicense} onChange={e => setNewHorseLicense(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '130px'}} />
                           </div>
                         </div>
                       )}
 
-                      <label style={{...styles.label, fontSize: '1.2rem', borderBottom: '2px solid #ffb300', paddingBottom: '10px', marginBottom: '15px', color: '#e65100'}}>Jaké Třídy jedeme? Klikejte z Ceníku (Seřaděno od Startu):</label>
-                      {pricing.length === 0 ? <p style={{color: 'red'}}>Pořadatel nic na letošek zatím do ceníku nenaházel.</p> : (
+                      <label style={{...styles.label, fontSize: '1.2rem', borderBottom: '2px solid #ffb300', paddingBottom: '10px', marginBottom: '15px', color: '#e65100'}}>Vyberte Disciplíny k odjetí z Ceníku:</label>
+                      {pricing.length === 0 ? <p style={{color: 'red'}}>Závodní disciplíny se teprve připravují, zatím nic.</p> : (
                         <div style={styles.disciplineList}>
                           {pricing.map(d => (
                             <div key={d.id} style={{display: 'flex', flexDirection: 'column', background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#fff', border: selectedDisciplines.find(x => x.id === d.id) ? '2px solid #5d4037' : '1px solid #ddd', borderRadius: '6px', marginBottom: '8px', overflow: 'hidden'}}>
@@ -1542,11 +1517,11 @@ export default function Home() {
                                 setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
                               }} style={{...styles.disciplineItem, borderBottom: 'none'}}>
                                 <span style={{fontWeight: selectedDisciplines.find(x => x.id === d.id) ? 'bold' : 'normal', fontSize: '1.1rem'}}>{d.discipline_name}</span>
-                                <strong style={{color: '#5d4037', fontSize: '1.2rem'}}>{d.price}  CZK</strong>
+                                <strong style={{color: '#5d4037', fontSize: '1.2rem'}}>{d.price} Kč</strong>
                               </div>
                               {d.pattern_url && (
                                 <div style={{padding: '0 15px 15px 15px', background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#fff'}}>
-                                  <a href={d.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0288d1', fontSize: '0.9rem', fontWeight: 'bold'}}>📄 Najít si jak mám projet dráhu (Rozepsaná PDF Úloha)</a>
+                                  <a href={d.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0288d1', fontSize: '0.9rem', fontWeight: 'bold'}}>📄 Zobrazit přiložený plánek úlohy (PDF/JPG)</a>
                                 </div>
                               )}
                             </div>
@@ -1555,21 +1530,21 @@ export default function Home() {
                       )}
                       
                       <div style={styles.priceTag}>
-                        Košíček k platbě: <span style={{fontSize: '1.8rem', color: '#e65100'}}>{selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} CZK</span>
+                        Košíček k platbě u Stolu: <span style={{fontSize: '1.6rem', color: '#e65100'}}>{selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} Kč</span>
                       </div>
 
                       <button onClick={handleRaceRegistration} style={{...styles.btnSecondary, background: '#ff9800', color: '#000', fontSize: '1.3rem', padding: '20px'}}>
-                        ODESLAT KOŠÍK DO KANCELÁŘE NA VĚŽ A SCHVÁLIT
+                        ZAREGISTROVAT TYTO DISCIPLÍNY DO KANCELÁŘE
                       </button>
                     </div>
 
                     {allRegistrations.filter(r => r.user_id === user?.id).length > 0 && (
                       <div style={{marginTop: '40px'}}>
-                        <h3 style={{borderBottom: '3px solid #8d6e63', paddingBottom: '10px', fontSize: '1.6rem'}}>Tak si omrkneme, co mě dneska Všechno čeká na zdi.. (Moje starty):</h3>
+                        <h3 style={{borderBottom: '3px solid #8d6e63', paddingBottom: '10px', fontSize: '1.4rem'}}>Sloh a stav mých dnešních nasazení v Aréně:</h3>
                         
                         {events.filter(e => allRegistrations.filter(r => r.user_id === user?.id).some(r => r.event_id === e.id) && e.schedule).map(ev => (
                           <div key={ev.id} style={{background: '#f5f5f5', padding: '15px', borderRadius: '6px', marginBottom: '20px', borderLeft: '6px solid #8d6e63', whiteSpace: 'pre-wrap'}}>
-                            <strong style={{color: '#5d4037', fontSize: '1.1rem', display: 'block', marginBottom: '5px'}}>Organizační Časoběžný plánek pro ({ev.name}):</strong>
+                            <strong style={{color: '#5d4037', fontSize: '1.1rem', display: 'block', marginBottom: '5px'}}>Organizační Časoběžný plánek pro závod ({ev.name}):</strong>
                             <span style={{fontSize: '1.1rem'}}>{ev.schedule}</span>
                           </div>
                         ))}
@@ -1578,11 +1553,11 @@ export default function Home() {
                           <table style={{width: '100%', fontSize: '1rem', borderCollapse: 'collapse', marginTop: '10px'}}>
                             <thead>
                               <tr style={{background: '#d7ccc8', textAlign: 'left'}}>
-                                <th style={{padding: '12px'}}>Co pojedu</th>
-                                <th style={{padding: '12px', width: '100px'}}>Na zádech</th>
-                                <th style={{padding: '12px'}}>V barvách pro koně</th>
-                                <th style={{padding: '12px'}}>Body domů</th>
-                                <th style={{padding: '12px', textAlign: 'center'}}>Stornovat z bytu?</th>
+                                <th style={{padding: '12px'}}>Co pojedu za Disciplínu</th>
+                                <th style={{padding: '12px', width: '100px'}}>St. Číslo</th>
+                                <th style={{padding: '12px'}}>Na Koníkovi</th>
+                                <th style={{padding: '12px'}}>Získané Bodování</th>
+                                <th style={{padding: '12px', textAlign: 'center'}}>Stornování</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1594,16 +1569,16 @@ export default function Home() {
                                 return (
                                   <tr key={r.id} style={{borderBottom: '2px solid #eee', background: '#fff'}}>
                                     <td style={{padding: '12px'}}><strong>{r.discipline}</strong></td>
-                                    <td style={{padding: '12px', fontSize: '1.3rem', fontWeight: '900', color: '#5d4037'}}>{r.start_number}</td>
-                                    <td style={{padding: '12px'}}>{r.horse_name} <br/><span style={{fontSize: '0.8rem', color:'#888'}}>jezdec: {r.rider_name}</span></td>
+                                    <td style={{padding: '12px', fontSize: '1.4rem', fontWeight: '900', color: '#5d4037'}}>{r.start_number}</td>
+                                    <td style={{padding: '12px'}}>{r.horse_name} <br/><span style={{fontSize: '0.8.5rem', color:'#888'}}>jezdec: {r.rider_name}</span></td>
                                     <td style={{padding: '12px', fontWeight: 'bold', color: scoreObj ? (scoreObj.is_dq ? '#d84315' : '#2e7d32') : '#888', fontSize: '1.2rem'}}>
-                                      {scoreObj ? (scoreObj.is_dq ? 'DQ' : scoreObj.total_score) : 'Čas nedotekl'}
+                                      {scoreObj ? (scoreObj.is_dq ? 'DQ' : scoreObj.total_score) : 'Čeká se na trať'}
                                     </td>
                                     <td style={{padding: '12px', textAlign: 'center'}}>
                                       {!isEventLocked ? (
-                                        <button onClick={() => handleCancelRegistration(r.id)} style={{background: '#ffebee', border: '1px solid #ef5350', color: '#c62828', cursor: 'pointer', fontWeight: 'bold', padding: '8px 15px', borderRadius: '4px'}}>Zrušit okno z Věže</button>
+                                        <button onClick={() => handleCancelRegistration(r.id)} style={{background: '#ffebee', border: '1px solid #ef5350', color: '#c62828', cursor: 'pointer', fontWeight: 'bold', padding: '8px 15px', borderRadius: '4px'}}>Zrušit přihlášku z věže</button>
                                       ) : (
-                                        <span style={{color: '#fff', background: '#bdbdbd', padding: '5px 10px', borderRadius: '4px', fontSize: '0.85rem'}}>Věž Zamkla přihlášky</span>
+                                        <span style={{color: '#fff', background: '#bdbdbd', padding: '5px 10px', borderRadius: '4px', fontSize: '0.85rem'}}>Již Uzamčeno</span>
                                       )}
                                     </td>
                                   </tr>
