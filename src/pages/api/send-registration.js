@@ -1,76 +1,76 @@
 import nodemailer from 'nodemailer';
 
 export default async function handler(req, res) {
-  // Povolíme pouze metodu POST
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Metoda není povolena' });
+    return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  // Vytáhneme si data, která nám poslal frontend
   const { email, eventName, riderName, horseName, startNumber, disciplines, totalPrice } = req.body;
 
   if (!email) {
-    return res.status(400).json({ message: 'Chybí e-mailová adresa' });
+    return res.status(400).json({ message: 'Chybí e-mail' });
   }
 
   try {
-    // 1. Nastavení odesílatele (Můstku)
-    // Tyto údaje musíš mít schované v souboru .env.local
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST, // např. smtp.gmail.com nebo smtp.seznam.cz
-      port: process.env.SMTP_PORT || 465,
-      secure: true, // true pro port 465, false pro ostatní
-      auth: {
-        user: process.env.SMTP_USER, // Tvoje e-mailová adresa
-        pass: process.env.SMTP_PASS, // Tvé heslo (nebo App Password u Gmailu)
-      },
-    });
+    // Používáme vaše stávající údaje ze Seznamu!
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.seznam.cz',
+        port: 465,
+        secure: true,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
 
-    // 2. Formátování textu e-mailu do pěkného HTML
-    const htmlContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #d7ccc8; border-radius: 10px; overflow: hidden;">
-        <div style="background-color: #5d4037; color: white; padding: 20px; text-align: center;">
-          <h1 style="margin: 0;">Potvrzení přihlášky</h1>
-          <p style="margin: 5px 0 0 0; font-size: 1.2rem;">Závody Pod Humprechtem</p>
-        </div>
-        <div style="padding: 20px; background-color: #f4ece4; color: #3e2723;">
-          <p>Dobrý den,</p>
-          <p>Vaše přihláška na závody <strong>${eventName}</strong> byla úspěšně přijata do systému!</p>
-          
-          <div style="background-color: white; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #ccc;">
-            <p style="margin: 0 0 10px 0;"><strong>Jezdec:</strong> ${riderName}</p>
-            <p style="margin: 0 0 10px 0;"><strong>Kůň:</strong> ${horseName}</p>
-            <p style="margin: 0 0 10px 0;"><strong>Přidělené startovní číslo:</strong> <span style="font-size: 1.5rem; color: #d32f2f; font-weight: bold;">${startNumber}</span></p>
-            
-            <h4 style="margin: 15px 0 5px 0; border-bottom: 1px solid #eee; padding-bottom: 5px;">Zvolené disciplíny:</h4>
-            <ul style="margin: 0; padding-left: 20px;">
-              ${disciplines.map(d => `<li>${d}</li>`).join('')}
-            </ul>
-            
-            <h3 style="margin: 20px 0 0 0; text-align: right; color: #2e7d32;">
-              Celková cena: ${totalPrice} Kč
-            </h3>
+      const mailOptions = {
+        from: `"Závody pod Humprechtem" <${process.env.EMAIL_USER}>`,
+        to: email, // Odesíláme přímo tomu jednomu jezdci
+        subject: `Potvrzení přihlášky: ${eventName}`,
+        html: `
+          <div style="background-color: #f4ece4; padding: 40px; font-family: 'Trebuchet MS', sans-serif; text-align: center;">
+            <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border: 4px double #5d4037; padding: 30px; box-shadow: 5px 5px 15px rgba(0,0,0,0.2);">
+              <h1 style="color: #5d4037; font-size: 28px; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 2px;">POTVRZENÍ PŘIHLÁŠKY</h1>
+              <h2 style="color: #8d6e63; font-size: 22px; margin-top: 0; margin-bottom: 25px; letter-spacing: 3px;">POD HUMPRECHTEM</h2>
+              
+              <p style="font-size: 18px; color: #333; line-height: 1.6; text-align: left;">
+                Dobrý den,<br><br>
+                Vaše přihláška na závody <strong style="color: #5d4037;">${eventName}</strong> byla úspěšně přijata a zapsána do systému!
+              </p>
+              
+              <div style="background: #eefeeb; border: 2px dashed #4caf50; padding: 15px; margin: 25px 0; text-align: left;">
+                <p style="margin: 0 0 10px 0; font-size: 18px;"><strong>Jezdec:</strong> ${riderName}</p>
+                <p style="margin: 0 0 10px 0; font-size: 18px;"><strong>Kůň:</strong> ${horseName}</p>
+                <p style="margin: 0 0 5px 0; font-size: 18px;"><strong>Vaše startovní číslo:</strong> <span style="font-size: 24px; color: #d32f2f; font-weight: bold; margin-left: 10px;">${startNumber}</span></p>
+              </div>
+
+              <div style="text-align: left; margin-bottom: 25px;">
+                <h3 style="color: #5d4037; font-size: 20px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">Zvolené disciplíny:</h3>
+                <ul style="font-size: 18px; color: #333; padding-left: 20px;">
+                  ${disciplines.map(d => `<li style="margin-bottom: 5px;">${d}</li>`).join('')}
+                </ul>
+                <h3 style="color: #d32f2f; font-size: 22px; text-align: right; margin-top: 20px; padding-top: 15px; border-top: 2px solid #eee;">
+                  Celkem k platbě: ${totalPrice} Kč
+                </h3>
+              </div>
+
+              <p style="font-size: 16px; color: #555; text-align: center; margin-top: 30px;">
+                Těšíme se na vás v aréně! 🤠<br><br>
+                <em>Tým JK Sobotka</em>
+              </p>
+            </div>
           </div>
+        `
+      };
 
-          <p>Těšíme se na Vás v aréně! 🤠</p>
-          <p><em>Toto je automaticky generovaná zpráva, prosím neodpovídejte na ni.</em></p>
-        </div>
-      </div>
-    `;
+      await transporter.sendMail(mailOptions);
+    }
 
-    // 3. Odeslání e-mailu
-    const info = await transporter.sendMail({
-      from: `"Závody Pod Humprechtem" <${process.env.SMTP_USER}>`, // Jméno odesílatele
-      to: email, // Komu to letí (uživateli)
-      subject: `Potvrzení přihlášky: ${eventName} - St. č. ${startNumber}`,
-      html: htmlContent,
-    });
-
-    console.log("E-mail odeslán: %s", info.messageId);
-    return res.status(200).json({ success: true, message: 'E-mail odeslán' });
-
+    res.status(200).json({ success: true });
+    
   } catch (error) {
-    console.error('Kritická chyba při odesílání e-mailu:', error);
-    return res.status(500).json({ success: false, error: 'Nepodařilo se odeslat e-mail' });
+    console.error('Chyba v send-registration:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 }
