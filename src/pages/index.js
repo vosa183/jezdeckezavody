@@ -1,30 +1,11 @@
 /* eslint-disable */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import React from 'react'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
-
-// ZVUKOVÉ UPOZORNĚNÍ PRO ŽLUTOU VYSÍLAČKU (ŠTÁB)
-const playAlert = () => {
-  try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + 0.2);
-    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-  } catch (e) {
-    console.log("Audio alert blocked by browser");
-  }
-};
 
 // BEZPEČNÉ ODESÍLÁNÍ (TOKENY JSOU SCHOVANÉ NA SERVERU)
 const sendTelegramMessage = async (text) => {
@@ -80,7 +61,6 @@ const disciplineRuleHints = {
 };
 
 const getRulesForDiscipline = (disciplineName) => {
-  if (!disciplineName) return disciplineRuleHints.default;
   const nameL = disciplineName.toLowerCase();
   if (nameL.includes('ranch') || nameL.includes('riding')) return disciplineRuleHints.ranch;
   if (nameL.includes('trail')) return disciplineRuleHints.trail;
@@ -112,13 +92,11 @@ export default function Home() {
   const [selectedDisciplines, setSelectedDisciplines] = useState([]);
   const [customRiderName, setCustomRiderName] = useState(''); 
   
-  // NOVÁ POLÍČKA PRO REGISTRACI A PDF (TVÁ PŮVODNÍ + NOVÁ PRO DATUMY/ID/DQ)
+  // NOVÁ POLÍČKA PRO REGISTRACI
   const [riderAgeCategory, setRiderAgeCategory] = useState('18+');
-  const [patternFile, setPatternFile] = useState(null);
-  const [riderBirthDate, setRiderBirthDate] = useState('');
-  const [horseBirthDate, setHorseBirthDate] = useState('');
+  const [horseBirthYear, setHorseBirthYear] = useState('');
   const [horseIdNumber, setHorseIdNumber] = useState('');
-  const [isDq, setIsDq] = useState(false);
+  const [patternFile, setPatternFile] = useState(null);
 
   // STAVY PRO INLINE EDITACI CENÍKU
   const [editingPricingId, setEditingPricingId] = useState(null);
@@ -145,12 +123,11 @@ export default function Home() {
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
   const [maneuverScores, setManeuverScores] = useState(Array(10).fill(0));
   const [penaltyScores, setPenaltyScores] = useState(Array(10).fill(0));
+  const [maneuverNames, setManeuverNames] = useState(Array(10).fill('')); // Udržuje názvy manévrů
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
 
-  // Reference pro žlutou vysílačku (detekce nové zprávy)
-  const lastInternalMsgRef = useRef('');
   useEffect(() => {
     checkUser();
   }, []);
@@ -158,21 +135,7 @@ export default function Home() {
   useEffect(() => {
     const interval = setInterval(async () => {
       const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
-      if (evts) {
-        setEvents(evts);
-        
-        // ŽLUTÁ VYSÍLAČKA - Detekce změn a upozornění pro štáb
-        const currentRole = profile?.role || simulatedRole;
-        if (['admin', 'superadmin', 'judge', 'speaker'].includes(currentRole)) {
-          const activeEv = evts.find(e => e.id === adminSelectedEvent || e.id === judgeEvent) || evts.find(e => e.is_locked) || evts[0];
-          if (activeEv && activeEv.internal_message && activeEv.internal_message !== lastInternalMsgRef.current) {
-            if (lastInternalMsgRef.current !== '') {
-               playAlert(); 
-            }
-            lastInternalMsgRef.current = activeEv.internal_message;
-          }
-        }
-      }
+      if (evts) setEvents(evts);
 
       if (profile?.role === 'admin' || profile?.role === 'superadmin' || profile?.role === 'judge' || profile?.role === 'speaker') {
         const { data: regs } = await supabase.from('race_participants').select('*');
@@ -183,7 +146,7 @@ export default function Home() {
       }
     }, 5000); 
     return () => clearInterval(interval);
-  }, [profile, adminSelectedEvent, judgeEvent, simulatedRole]);
+  }, [profile]);
 
   const logSystemAction = async (actionDesc, detailData = {}) => {
     if (!user) return;
@@ -196,13 +159,13 @@ export default function Home() {
 
   async function checkUser() {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        setUser(authUser);
-        const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUser(user);
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         setProfile(prof);
         
-        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', authUser.id);
+        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', user.id);
         setMyHorses(horses || []);
 
         const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
@@ -211,16 +174,16 @@ export default function Home() {
         const { data: prices } = await supabase.from('pricing').select('*').order('id');
         setPricing(prices || []);
 
-        const isStaff = prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge' || prof?.role === 'speaker';
-        
-        if (isStaff) {
+        if (prof?.role === 'admin' || prof?.role === 'superadmin' || prof?.role === 'judge' || prof?.role === 'speaker') {
           const { data: regs } = await supabase.from('race_participants').select('*');
           setAllRegistrations(regs || []);
+
           const { data: scores } = await supabase.from('scoresheets').select('*');
           setScoresheets(scores || []);
         } else {
-          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', authUser.id);
+          const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', user.id);
           setAllRegistrations(regs || []);
+
           const { data: scores } = await supabase.from('scoresheets').select('*');
           setScoresheets(scores || []);
         }
@@ -308,24 +271,13 @@ export default function Home() {
       alert('Chyba komunikace se serverem.');
     }
   };
+
   const handlePrint = (mode) => {
     setPrintMode(mode);
     setTimeout(() => {
       window.print();
       setPrintMode('');
     }, 500); 
-  };
-
-  const handleUpdateInternalMessage = async (eventId, currentMessage) => {
-    const msg = prompt("Zadejte TAJNOU zprávu pro štáb (vidí ji Admin, Rozhodčí, Spíkr ve žlutém poli). Smazáním textu zprávu zrušíte:", currentMessage || "");
-    if (msg !== null) {
-      const { error } = await supabase.from('events').update({ internal_message: msg }).eq('id', eventId);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Změna tajné zprávy pro štáb', { msg });
-        checkUser(); 
-      }
-    }
   };
 
   const handleUpdateSpeakerMessage = async (eventId, currentMessage) => {
@@ -360,27 +312,7 @@ export default function Home() {
                     `Přihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
       await sendTelegramMessage(tgMsg);
 
-      try {
-        const { data: profs } = await supabase.from('profiles').select('email').not('email', 'is', null);
-        if (profs && profs.length > 0) {
-          const allEmails = profs.map(p => p.email).filter(e => e.includes('@'));
-          if (allEmails.length > 0) {
-            await fetch('/api/send-invites', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                eventName: newEventName,
-                eventDate: newEventDate,
-                emails: allEmails
-              })
-            });
-          }
-        }
-      } catch (mailErr) {
-        console.error('Chyba při volání mailového můstku:', mailErr);
-      }
-
-      alert('Závod vytvořen a oznámení odesláno do Telegramu a e-mailem všem jezdcům!'); 
+      alert('Závod vytvořen a oznámení odesláno do Telegramu všem jezdcům!'); 
       window.location.reload(); 
     }
   };
@@ -485,6 +417,7 @@ export default function Home() {
       }
     }
   };
+
   const sendManualTgMessage = async () => {
     if(!manualTgMessage) return;
     await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
@@ -505,27 +438,19 @@ export default function Home() {
       const scoredRiders = ridersInDisc
         .map(r => {
           const sObj = scoresheets.find(s => s.participant_id === r.id);
-          return { ...r, totalScore: sObj ? sObj.total_score : -999, isDq: sObj?.is_dq || false };
+          return { ...r, totalScore: sObj ? sObj.total_score : -999 };
         })
-        .filter(r => r.totalScore !== -999 || r.isDq)
-        .sort((a, b) => {
-           if (a.isDq) return 1;
-           if (b.isDq) return -1;
-           return b.totalScore - a.totalScore;
-        }); 
+        .filter(r => r.totalScore !== -999)
+        .sort((a, b) => b.totalScore - a.totalScore); 
 
       if(scoredRiders.length > 0) {
         tgMsg += `📍 <b>${disc}</b>\n`;
         scoredRiders.forEach((r, index) => {
-          if (r.isDq) {
-            tgMsg += `❌ ${r.rider_name} (${r.horse_name}) - <b>DQ</b>\n`;
-          } else {
-            let medal = '🏅';
-            if(index === 0) medal = '🥇';
-            if(index === 1) medal = '🥈';
-            if(index === 2) medal = '🥉';
-            tgMsg += `${medal} ${index + 1}. ${r.rider_name} (${r.horse_name}) - <b>${r.totalScore} b.</b>\n`;
-          }
+          let medal = '🏅';
+          if(index === 0) medal = '🥇';
+          if(index === 1) medal = '🥈';
+          if(index === 2) medal = '🥉';
+          tgMsg += `${medal} ${index + 1}. ${r.rider_name} (${r.horse_name}) - <b>${r.totalScore} b.</b>\n`;
         });
         tgMsg += `\n`;
       }
@@ -539,7 +464,7 @@ export default function Home() {
 
   const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
-      alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil! Prosím, upravte si údaje v levém panelu.");
+      alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil!");
       return;
     }
 
@@ -557,7 +482,7 @@ export default function Home() {
         return;
       }
       const { data: newHorse, error: horseErr } = await supabase.from('horses')
-        .insert([{ owner_id: user.id, name: newHorseName.trim() }])
+        .insert([{ owner_id: user.id, name: newHorseName.trim(), birth_year: horseBirthYear, horse_id_number: horseIdNumber }])
         .select().single();
       if (horseErr) return alert("Chyba při ukládání koně: " + horseErr.message);
       finalHorseName = newHorse.name;
@@ -596,14 +521,11 @@ export default function Home() {
         user_id: user.id,
         event_id: selectedEvent,
         rider_name: finalRiderName,
-        rider_birth_date: riderBirthDate, 
         age_category: riderAgeCategory,
         horse_name: finalHorseName,
-        horse_birth_date: horseBirthDate, 
-        horse_id_number: horseIdNumber,   
         discipline: d.discipline_name,
         start_number: assignedNumber,
-        draw_order: null, 
+        draw_order: null,  // Zde se záměrně negeneruje DRAW dopředu, zůstane prázdné
         price: d.price,
         is_paid: false,
         payment_note: ''
@@ -613,7 +535,7 @@ export default function Home() {
     const { error } = await supabase.from('race_participants').insert(registrationData);
     if (error) alert(error.message);
     else {
-      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: finalRiderName });
+      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: finalRiderName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
       alert(`Přihláška odeslána! Startovní číslo: ${assignedNumber}. Závodník: ${finalRiderName}`);
       setCustomRiderName('');
       setSelectedDisciplines([]);
@@ -632,27 +554,22 @@ export default function Home() {
       }
     }
   };
-
+  
   const updateParticipantDraw = async (id, newDraw) => {
-    const currentRole = profile?.role || simulatedRole;
-    if (currentRole !== 'judge' && currentRole !== 'superadmin') {
-      alert("Nemáte oprávnění upravovat startovní pořadí (DRAW)!");
-      return;
-    }
     const val = newDraw ? parseInt(newDraw) : null;
-    const { error } = await supabase.from('race_participants').update({ draw_order: val }).eq('id', id);
-    if (error) alert(error.message);
-    else checkUser();
+    await supabase.from('race_participants').update({ draw_order: val }).eq('id', id);
+    checkUser();
   };
 
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
   };
+
   const announceDisciplineEnd = async (discName) => {
     if(confirm(`Oznámit konec disciplíny ${discName}?`)){
-        await handleUpdateInternalMessage(judgeEvent || adminSelectedEvent, `DISCIPLÍNA ${discName} DOKONČENA. Čekám na další pokyny.`);
-        alert('Oznámeno štábu přes žlutou vysílačku!');
+        await sendTelegramMessage(`🏁 <b>DISCIPLÍNA UZAVŘENA</b>\n\nPrávě bylo dokončeno hodnocení disciplíny <b>${discName}</b>. Kompletní výsledky budou k dispozici po ukončení závodů. Děkujeme jezdcům!`);
+        alert('Odesláno!');
     }
   };
 
@@ -663,11 +580,13 @@ export default function Home() {
     if (existingScore) {
       setManeuverScores(existingScore.score_data.maneuvers || Array(10).fill(0));
       setPenaltyScores(existingScore.score_data.penalties || Array(10).fill(0));
-      setIsDq(existingScore.is_dq || false);
+      if (existingScore.score_data.maneuverNames) {
+        setManeuverNames(existingScore.score_data.maneuverNames);
+      }
     } else {
       setManeuverScores(Array(10).fill(0));
       setPenaltyScores(Array(10).fill(0));
-      setIsDq(false);
+      // Schválně NENULUJEME maneuverNames, aby rozhodčímu zůstaly názvy z předchozího jezdce!
     }
   };
 
@@ -677,6 +596,12 @@ export default function Home() {
     setManeuverScores(newScores);
   };
 
+  const handleManeuverNameChange = (index, value) => {
+    const newNames = [...maneuverNames];
+    newNames[index] = value;
+    setManeuverNames(newNames);
+  };
+
   const handlePenaltyChange = (index, value) => {
     const newPenalties = [...penaltyScores];
     newPenalties[index] = parseFloat(value) || 0;
@@ -684,7 +609,6 @@ export default function Home() {
   };
 
   const calculateTotalScore = () => {
-    if (isDq) return 0;
     const baseScore = 70;
     const maneuversTotal = maneuverScores.reduce((acc, val) => acc + val, 0);
     const penaltiesTotal = penaltyScores.reduce((acc, val) => acc + val, 0);
@@ -692,20 +616,13 @@ export default function Home() {
   };
 
   const saveScore = async () => {
-    // PŘÍSNÁ KONTROLA ROLE
-    const currentRole = profile?.role || simulatedRole;
-    if (currentRole !== 'judge' && currentRole !== 'superadmin') {
-      alert("Chyba: Pouze Zapisovatel (nebo Superadmin) může ukládat hodnocení!");
-      return;
-    }
-
     const total = calculateTotalScore();
-    const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores };
+    const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores, maneuverNames: maneuverNames };
     
     const timestamp = new Date().toISOString();
     const judgeName = profile?.full_name || 'Neznámý rozhodčí';
     
-    const dataToSign = `${evaluatingParticipant.id}-${judgeName}-${timestamp}-${total}-${isDq}-${JSON.stringify(scoreData)}`;
+    const dataToSign = `${evaluatingParticipant.id}-${judgeName}-${timestamp}-${total}-${JSON.stringify(scoreData)}`;
     const hash = await generateHash(dataToSign);
 
     await supabase.from('scoresheets').delete().eq('participant_id', evaluatingParticipant.id);
@@ -717,15 +634,14 @@ export default function Home() {
       scored_at: timestamp,
       signature_hash: hash,
       score_data: scoreData,
-      total_score: total,
-      is_dq: isDq
+      total_score: total
     });
 
     if (error) {
       alert('Chyba při ukládání: ' + error.message);
     } else {
-      await logSystemAction('Uloženo hodnocení', { rider: evaluatingParticipant.rider_name, total, isDq, hash });
-      alert('Hodnocení bylo úspěšně uloženo a digitálně podepsáno!');
+      await logSystemAction('Uloženo hodnocení vč. digitálního podpisu', { rider: evaluatingParticipant.rider_name, total, hash });
+      alert('Hodnocení bylo úspěšně uloženo a podepsáno!');
       setEvaluatingParticipant(null);
       checkUser(); 
     }
@@ -743,14 +659,12 @@ export default function Home() {
           <p className="no-print" style={{color: '#666'}}>Zatím nejsou k dispozici žádní jezdci.</p>
         ) : (
           disciplines.map(discipline => {
-            const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => {
-              if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
-              return a.start_number - b.start_number;
-            });
+            const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => a.draw_order - b.draw_order);
             if(ridersInDiscipline.length === 0) return null;
 
             const scoredRiders = ridersInDiscipline.filter(r => scoresheets.some(s => s.participant_id === r.id));
             const signatureObj = scoredRiders.length > 0 ? scoresheets.find(s => s.participant_id === scoredRiders[0].id) : null;
+            const printManeuverNames = signatureObj?.score_data?.maneuverNames || Array(10).fill('');
             
             return (
               <div key={discipline} className="page-break" style={{ position: 'relative', minHeight: '95vh', paddingBottom: '70px', marginBottom: '40px' }}>
@@ -775,8 +689,8 @@ export default function Home() {
                       <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '80px', textAlign: 'center', fontSize: '1.1rem' }}>FINAL<br/>SCORE</th>
                     </tr>
                     <tr>
-                      {[1,2,3,4,5,6,7,8,9,10].map(m => (
-                        <th key={m} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5' }}>{m}</th>
+                      {printManeuverNames.map((name, i) => (
+                        <th key={i} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5', fontSize: '0.7rem' }}>{name || i + 1}</th>
                       ))}
                     </tr>
                   </thead>
@@ -784,8 +698,6 @@ export default function Home() {
                     {ridersInDiscipline.map(r => {
                       const scoreObj = scoresheets.find(s => s.participant_id === r.id);
                       const pTotal = scoreObj ? scoreObj.score_data.penalties.reduce((a,b)=>a+b,0) : '';
-                      const isDqResult = scoreObj?.is_dq;
-
                       return (
                         <React.Fragment key={r.id}>
                           <tr>
@@ -804,15 +716,15 @@ export default function Home() {
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', color: 'red', fontWeight: 'bold', fontSize: '1.1rem' }}>
                               {pTotal > 0 ? `-${pTotal}` : ''}
                             </td>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.3rem', color: isDqResult ? 'red' : 'black' }}>
-                              {isDqResult ? 'DQ' : (scoreObj ? scoreObj.total_score : '')}
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.3rem' }}>
+                              {scoreObj ? scoreObj.total_score : ''}
                             </td>
                           </tr>
                           <tr>
                             <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>SCORE</td>
                             {[0,1,2,3,4,5,6,7,8,9].map(i => (
                               <td key={`s-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', height: '25px' }}>
-                                {scoreObj && !isDqResult && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj && !isDqResult ? '0' : '')}
+                                {scoreObj && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj ? '0' : '')}
                               </td>
                             ))}
                           </tr>
@@ -824,20 +736,20 @@ export default function Home() {
 
                 <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '3px solid black', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{flex: 1}}>
-                    <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#555' }}>Podpis rozhodčího / Judge's signature:</p>
+                    <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#555' }}>Digitálně podepsal / Judge's signature:</p>
                     <h3 style={{ margin: '0 0 5px 0' }}>{signatureObj ? signatureObj.judge_name : '_______________________'}</h3>
                     <p style={{ margin: '0', fontSize: '0.9rem' }}>Dne: {signatureObj ? new Date(signatureObj.scored_at).toLocaleString('cs-CZ') : '___________________'}</p>
                   </div>
                   
                   {scoredRiders.length > 0 && (
                     <div style={{ flex: 1, textAlign: 'right', background: '#f5f5f5', padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }}>
-                      <p style={{ margin: '0 0 5px 0', fontSize: '0.8rem', fontWeight: 'bold', color: '#333' }}>DIGITÁLNÍ KONTROLNÍ OTISKY (SHA-256)</p>
+                      <p style={{ margin: '0 0 5px 0', fontSize: '0.8rem', fontWeight: 'bold', color: '#333' }}>KRYPTOGRAFICKÉ OTISKY HODNOCENÍ (SHA-256)</p>
                       <ul style={{ margin: '0', padding: '0', listStyleType: 'none', fontSize: '0.65rem', color: '#666', textAlign: 'left', display: 'inline-block' }}>
                         {scoredRiders.map(r => {
                           const sObj = scoresheets.find(s => s.participant_id === r.id);
                           return (
                             <li key={r.id} style={{marginBottom: '3px'}}>
-                              <strong>Záda {r.start_number}:</strong> {sObj.signature_hash.substring(0, 20)}...
+                              <strong>St. č. {r.start_number}:</strong> {sObj.signature_hash.substring(0, 20)}...
                             </li>
                           )
                         })}
@@ -856,536 +768,911 @@ export default function Home() {
       </div>
     );
   };
-const styles = {
-    container: {
-      minHeight: '100vh',
-      backgroundColor: '#efebe9',
-      color: '#3e2723',
-      fontFamily: '"Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-      padding: '20px'
-    },
-    card: {
-      backgroundColor: '#ffffff',
-      borderRadius: '12px',
-      padding: '25px',
-      boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-      marginBottom: '20px',
-      border: '1px solid #d7ccc8'
-    },
-    input: {
-      width: '100%',
-      padding: '12px',
-      marginBottom: '15px',
-      borderRadius: '8px',
-      border: '2px solid #d7ccc8',
-      fontSize: '1rem',
-      boxSizing: 'border-box'
-    },
-    button: {
-      backgroundColor: '#5d4037',
-      color: 'white',
-      padding: '12px 24px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      fontSize: '1rem',
-      fontWeight: 'bold',
-      transition: 'all 0.3s ease'
-    },
-    secondaryButton: {
-      backgroundColor: '#8d6e63',
-      color: 'white',
-      padding: '10px 20px',
-      border: 'none',
-      borderRadius: '8px',
-      cursor: 'pointer'
-    },
-    badge: {
-      padding: '4px 10px',
-      borderRadius: '20px',
-      fontSize: '0.85rem',
-      fontWeight: 'bold',
-      marginLeft: '10px'
-    },
-    table: {
-      width: '100%',
-      borderCollapse: 'collapse',
-      marginTop: '15px'
-    },
-    th: {
-      textAlign: 'left',
-      padding: '12px',
-      borderBottom: '2px solid #d7ccc8',
-      backgroundColor: '#f5f5f5'
-    },
-    td: {
-      padding: '12px',
-      borderBottom: '1px solid #efebe9'
-    }
-  };
 
-  if (loading) {
-    return (
-      <div style={{...styles.container, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
-        <div style={{textAlign: 'center'}}>
-          <h2 style={{color: '#5d4037'}}>Načítám závodní systém...</h2>
-          <div className="loader"></div>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
-  if (printMode === 'startlist') return renderPrintableScoresheets(adminSelectedEvent || judgeEvent);
-  if (printMode === 'scoresheets') return renderPrintableScoresheets(adminSelectedEvent || judgeEvent);
+  const effectiveRole = simulatedRole || profile?.role || 'player';
+  const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
+  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
 
-  if (!user) {
-    return (
-      <div style={{...styles.container, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
-        <div style={{...styles.card, width: '100%', maxWidth: '450px', textAlign: 'center'}}>
-          <div style={{fontSize: '4rem', marginBottom: '10px'}}>🐎</div>
-          <h1 style={{color: '#5d4037', marginBottom: '5px'}}>Závody Humprecht</h1>
-          <p style={{color: '#8d6e63', marginBottom: '30px'}}>Vstup pro jezdce a štáb</p>
-          
-          <form onSubmit={handleAuth}>
-            <input 
-              style={styles.input} 
-              type="email" 
-              placeholder="Váš e-mail" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-              required 
-            />
-            <input 
-              style={styles.input} 
-              type="password" 
-              placeholder="Heslo" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              required 
-            />
-            <button style={{...styles.button, width: '100%'}} type="submit">
-              {isSignUp ? 'Vytvořit účet' : 'Přihlásit se'}
-            </button>
-          </form>
-          <p 
-            style={{marginTop: '20px', color: '#5d4037', cursor: 'pointer', textDecoration: 'underline'}}
-            onClick={() => setIsSignUp(!isSignUp)}
-          >
-            {isSignUp ? 'Už máte účet? Přihlaste se' : 'Nemáte účet? Zaregistrujte se'}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const lockedEvent = events.find(ev => ev.is_locked);
+  const speakerEventId = lockedEvent?.id;
+  const speakerDiscipline = lockedEvent?.active_discipline;
+  const speakerStartList = speakerEventId && speakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
 
-  const userRole = simulatedRole || profile?.role || 'player';
+  const currentRules = getRulesForDiscipline(judgeDiscipline);
 
-  if (currentTab === 'rules') {
+  if (currentTab === 'rules' && user) {
     return (
       <div style={styles.container}>
         <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
-          <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🐎 Závodní Portál</button>
-          <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>📜 Propozice a Pravidla</button>
+          <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Zpět do Aplikace</button>
+          <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
         </div>
         
-        <div style={{...styles.card, maxWidth: '900px', margin: '0 auto'}}>
-          <h2 style={{color: '#5d4037', borderBottom: '3px solid #ffb300', paddingBottom: '10px'}}>PROPOZICE ZÁVODŮ</h2>
-          
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem', marginTop: '20px'}}>Základní informace</h4>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Závody se konají v areálu <strong>Pod Humprechtem</strong>. Jsou otevřeny pro všechny jezdce a koně bez nutnosti licence.</p>
+        <div className="no-print" style={styles.card}>
+          <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>WESTERNOVÉ HOBBY ZÁVODY POD HUMPRECHTEM</h2>
+          <h3 style={{color: '#8d6e63', textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '20px', marginBottom: '30px'}}>PROPOZICE</h3>
 
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Časový plán</h4>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Veterinární přejímka bude probíhat od <strong>8:00 do 9:00</strong>. Předpokládaný čas zahájení akce je cca <strong>9:00</strong>. Čas je pouze orientační.</p>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px', fontSize: '1.1rem'}}>
+            <div>
+              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
+                <li style={{marginBottom: '10px'}}><strong>Pořadatel:</strong> JK Sobotka – Pavla Koklesová</li>
+                <li style={{marginBottom: '10px'}}><strong>Termín konání:</strong> Uveden v názvu závodu</li>
+                <li style={{marginBottom: '10px'}}><strong>Rozhodčí:</strong> Pavla Doubravová</li>
+                <li style={{marginBottom: '10px'}}><strong>Ředitel akce:</strong> Pavla Koklesová</li>
+                <li style={{marginBottom: '10px'}}><strong>Sekretář závodů:</strong> Leona Plocková (plockovaleona@seznam.cz)</li>
+              </ul>
+            </div>
+            <div>
+              <ul style={{listStyleType: 'none', padding: 0, margin: 0}}>
+                <li style={{marginBottom: '10px'}}><strong>Místo konání:</strong> Sobotka – kolbiště a jízdárna pod Humprechtem<br/>(Adresa: Pod Humprechtem 507 43)</li>
+                <li style={{marginBottom: '10px'}}><strong>Zdravotní služba:</strong> Červený kříž</li>
+                <li style={{marginBottom: '10px'}}><strong>Uzávěrka přihlášek:</strong> 36h. před zahajením</li>
+                <li style={{marginBottom: '10px'}}><strong>Kontakty:</strong> 721 456 049, 702 165 991</li>
+              </ul>
+            </div>
+          </div>
 
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Veterinární podmínky</h4>
-          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Kůň musí být v imunitě proti influenze (chřipce). Kůň starší 12 měsíců musí mít negativní výsledek na infekční anemii (IAE), ne starší 12 měsíců.</p>
-
-          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Kategorie</h4>
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Informace o akci a Poplatky</h4>
+          <p style={{fontSize: '1.1rem'}}>Sledujte naše oficiální informační kanály na internetu a událost Westernové hobby závody pod Humprechtem.</p>
           <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
-            <li><strong>Open</strong> – Otevřená pro všechny.</li>
-            <li><strong>Mládež Advanced</strong> – Do 18 let včetně.</li>
-            <li><strong>Mládež Rookies</strong> – Do 14 let včetně (krok, klus).</li>
-            <li><strong>Děti</strong> – Do 12 let včetně (s vodičem i bez).</li>
-            <li><strong>Hříbata</strong> – Do 3 let včetně (In-hand disciplíny).</li>
+            <li><strong>300 Kč</strong> (kategorie Open, Hříbata)</li>
+            <li><strong>250 Kč</strong> (kategorie Mládež, Děti)</li>
           </ul>
 
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Časový plán</h4>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Veterinární přejímka bude probíhat od <strong>8:00 do 9:00</strong>. Předpokládaný čas zahájení akce je cca <strong>9:00</strong>. Čas je pouze orientační a může se změnit.</p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Veterinární podmínky</h4>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Kůň musí být v imunitě proti influenze (chřipce) koní. Kůň starší 12 měsíců musí být laboratorně vyšetřen s negativním výsledkem na infekční anemii, vyšetření nesmí být starší 12 měsíců. Soutěžící jsou povinni řídit se Řádem ochrany koní při veřejném vystoupení a svodu koní.</p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Všeobecné podmínky</h4>
+          <p style={{fontSize: '1.1rem'}}>Za bezpečnost nezletilého odpovídá rodič nebo jím pověřená osoba. Pokud jezdec koně dostatečně neovládá, a omezuje či ohrožuje ostatní účastníky, má pořadatel (prostřednictvím ředitele akce nebo pořadatele) právo je vyloučit bez nároku na vrácení startovného.</p>
+          <p style={{fontSize: '1.1rem'}}>Pořadatel si vyhrazuje právo neumožnit účast v soutěžním prostoru koním, kteří nejsou ve vhodném zdravotním či výživovém stavu, nebo mají nevhodně padnoucí či poškozenou výstroj, a to v zájmu zajištění welfare zvířat.</p>
+          <p style={{fontSize: '1.1rem'}}>V případě, že jezdec/vodič nedokáže dostatečně ovládat koně a tím například omezuje nebo ohrožuje ostatní účastníky – ať už v soutěžním prostoru nebo na opracovišti – má pořadatel (prostřednictvím ředitele závodů, stevarda nebo jiné odpovědné osoby) právo takového účastníka vyloučit bez nároku na vrácení startovného.</p>
+          <p style={{fontSize: '1.1rem'}}>Žádáme tímto rodiče, trenéry i jezdce, aby zvážili své schopnosti a připravenost koně i jezdce, a předešli tak situacím, které by mohly ohrozit bezpečný a férový průběh závodů.</p>
+          <p style={{marginBottom: '20px', fontSize: '1.1rem'}}>Pořadatel neručí za případné úrazy koní a jezdců, za ztráty předmětů a jejich poškození. <strong>Není potřeba vlastnit licenci nebo být členem asociace.</strong></p>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>DISCIPLÍNY</h4>
+          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li>Showmanship at Halter (open, mládež, děti, hříbata)</li>
+            <li>Western Horsemanship (open, mládež, děti)</li>
+            <li>Ranch Rail Pleasure (open, mládež)</li>
+            <li>Ranch Riding (open, mládež)</li>
+            <li>Ranch Trail (open, mládež)</li>
+            <li>In-Hand Trail (open, mládež, děti, hříbata)</li>
+            <li>Trail (open, mládež, děti)</li>
+            <li>Kovbojská stezka - může se předvést ze sedla i ze země (děti, mládež, hříbata, open)</li>
+          </ul>
+
+          <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Kategorie</h4>
+          <ol style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li style={{marginBottom: '10px'}}><strong>Open</strong> – otevřená kategorie pro všechny. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
+            <li style={{marginBottom: '10px'}}><strong>Mládež</strong> – rozdělena na:
+              <ul>
+                <li><em>Začátečníci (Rookies):</em> do 14 let včetně (chody krok, klus - možnost individuálního posouzení).</li>
+                <li><em>Pokročilí (Advanced):</em> do 18 let včetně. (Cvalové pasáže jsou umožněny zajet v klusu za snížený počet bodů).</li>
+              </ul>
+            </li>
+            <li style={{marginBottom: '10px'}}><strong>Děti</strong> – do 12 let včetně – s vodičem nebo bez vodiče.</li>
+            <li style={{marginBottom: '10px'}}><strong>Hříbata</strong> – do 3 let včetně.</li>
+          </ol>
+
           <h4 style={{color: '#5d4037', fontSize: '1.2rem'}}>Výstroj</h4>
-          <p style={{fontSize: '1.1rem'}}>Povolená je westernová i anglická výstroj. V kategorii děti a mládež je <strong>povinná bezpečnostní přilba</strong>. V ostatních kategoriích je doporučená, nebo povinný klobouk.</p>
-          
-          <button onClick={() => setCurrentTab('app')} style={{...styles.button, marginTop: '30px'}}>Zpět do portálu</button>
+          <p style={{fontSize: '1.1rem'}}><strong>Kůň:</strong></p>
+          <ul style={{fontSize: '1.1rem'}}>
+            <li>Výstroj může být anglická i westernová.</li>
+            <li>V rančovních disciplínách je povoleno bezudidlové vedení.</li>
+            <li>Je povoleno i obouruční vedení na pákovém udidle.</li>
+          </ul>
+          <p style={{marginTop: '10px', fontSize: '1.1rem'}}><strong>Jezdec:</strong></p>
+          <ul style={{marginBottom: '20px', fontSize: '1.1rem'}}>
+            <li>Westernový klobouk či přilba, košile s dlouhým rukávem, dlouhé kalhoty.</li>
+            <li><strong>Pro kategorie mládež a děti je bezpečnostní přilba povinná.</strong></li>
+          </ul>
         </div>
       </div>
     );
   }
-// Pomocná proměnná pro aktivní disciplíny rozhodčího a startku
-  const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
-  const judgeStartList = (judgeEvent && judgeDiscipline) ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => {
-    if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
-    return a.start_number - b.start_number;
-  }) : [];
-
-  const activeSpeakerEvent = events.find(e => e.is_locked) || events[0];
-  const speakerDiscipline = activeSpeakerEvent?.active_discipline;
-  const speakerStartList = (activeSpeakerEvent && speakerDiscipline) ? allRegistrations.filter(r => r.event_id === activeSpeakerEvent.id && r.discipline === speakerDiscipline).sort((a, b) => {
-    if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
-    return a.start_number - b.start_number;
-  }) : [];
 
   return (
     <div style={styles.container}>
-      {/* HORNÍ NAVIGACE */}
-      <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: '15px' }}>
-          <button onClick={() => setCurrentTab('app')} style={{ background: currentTab === 'app' ? '#ffb300' : 'transparent', color: currentTab === 'app' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🐎 Závodní Portál</button>
-          <button onClick={() => setCurrentTab('rules')} style={{ background: currentTab === 'rules' ? '#ffb300' : 'transparent', color: currentTab === 'rules' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>📜 Propozice a Pravidla</button>
-        </div>
-        <button onClick={handleSignOut} style={{ background: '#e57373', color: '#fff', border: 'none', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Odhlásit</button>
-      </div>
+      <style>{`
+        @media print {
+          body { background: white !important; color: black !important; margin: 0; padding: 0; font-size: 11pt; }
+          .no-print { display: none !important; }
+          .print-area { width: 100% !important; max-width: 100% !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
+          .page-break { page-break-after: always; position: relative; }
+          .wrc-scoresheet th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          input, select { border: none !important; appearance: none !important; font-weight: bold; background: transparent !important; }
+          .print-input::placeholder { color: transparent !important; }
+          .footer-branding { position: fixed !important; bottom: 0 !important; }
+        }
+      `}</style>
 
-      {/* SUPERADMIN BAR */}
-      {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
-        <div className="no-print" style={{ background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <strong>{profile?.role === 'superadmin' ? 'SUPERADMIN:' : 'ADMIN:'}</strong>
-          {profile?.role === 'superadmin' && (
-            <button onClick={() => setSimulatedRole('superadmin')} style={userRole === 'superadmin' ? { background: '#ffb300', color: '#000', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold' } : { background: '#333', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px' }}>Superadmin</button>
-          )}
-          <button onClick={() => setSimulatedRole('admin')} style={userRole === 'admin' ? { background: '#ffb300', color: '#000', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold' } : { background: '#333', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px' }}>Admin</button>
-          {profile?.role === 'superadmin' && (
-            <button onClick={() => setSimulatedRole('judge')} style={userRole === 'judge' ? { background: '#ffb300', color: '#000', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold' } : { background: '#333', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px' }}>Rozhodčí</button>
-          )}
-          {profile?.role === 'superadmin' && (
-            <button onClick={() => setSimulatedRole('speaker')} style={userRole === 'speaker' ? { background: '#ffb300', color: '#000', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold' } : { background: '#333', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px' }}>Spíkr</button>
-          )}
-          <button onClick={() => setSimulatedRole('player')} style={userRole === 'player' ? { background: '#ffb300', color: '#000', border: 'none', padding: '5px 10px', borderRadius: '4px', fontWeight: 'bold' } : { background: '#333', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: '4px' }}>Hráč</button>
+      {user && (
+        <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
+          <button onClick={() => setCurrentTab('app')} style={{ background: currentTab === 'app' ? '#ffb300' : 'transparent', color: currentTab === 'app' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
+          <button onClick={() => setCurrentTab('rules')} style={{ background: currentTab === 'rules' ? '#ffb300' : 'transparent', color: currentTab === 'rules' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
         </div>
       )}
 
-      <div style={styles.mainGrid}>
-        {/* LEVÝ PANEL - PROFIL A KONĚ */}
-        <div className="no-print">
-          <div style={styles.card}>
-            <h3 style={{ marginTop: 0 }}>👤 Můj Profil</h3>
-            {editMode ? (
-              <form onSubmit={updateProfile}>
-                <input style={styles.input} placeholder="Celé jméno" value={profile?.full_name || ''} onChange={e => setProfile({ ...profile, full_name: e.target.value })} required />
-                <input style={styles.input} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({ ...profile, phone: e.target.value })} required />
-                <input style={styles.input} placeholder="Hospodářství / Stáj" value={profile?.stable || ''} onChange={e => setProfile({ ...profile, stable: e.target.value })} required />
-                <input style={styles.input} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({ ...profile, city: e.target.value })} required />
-                <button type="submit" style={styles.button}>Uložit profil</button>
-                <button type="button" onClick={() => setEditMode(false)} style={{ ...styles.button, background: '#ccc', marginLeft: '10px' }}>Zrušit</button>
-              </form>
-            ) : (
-              <div>
-                <p><strong>{profile?.full_name || 'Nevyplněno'}</strong></p>
-                <p>📞 {profile?.phone || 'Nevyplněno'}</p>
-                <p>🏠 {profile?.city || 'Nevyplněno'}</p>
-                <button onClick={() => setEditMode(true)} style={styles.secondaryButton}>Upravit údaje</button>
-              </div>
-            )}
-          </div>
-
-          <div style={styles.card}>
-            <h3 style={{ marginTop: 0 }}>🐎 Moji koně</h3>
-            {myHorses.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#888' }}>Zatím žádní koně.</p> : (
-              <ul style={{ listStyle: 'none', padding: 0 }}>
-                {myHorses.map(h => (
-                  <li key={h.id} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}><strong>{h.name}</strong></li>
-                ))}
-              </ul>
-            )}
-          </div>
+      {(profile?.role === 'superadmin' || profile?.role === 'admin') && (
+        <div className="no-print" style={{...styles.superAdminBar, flexWrap: 'wrap'}}>
+          <strong>{profile?.role === 'superadmin' ? 'SUPERADMIN:' : 'ADMIN:'}</strong> 
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('superadmin')} style={effectiveRole === 'superadmin' ? styles.activeTab : styles.tab}>Superadmin</button>
+          )}
+          <button onClick={() => setSimulatedRole('admin')} style={effectiveRole === 'admin' ? styles.activeTab : styles.tab}>Admin Pohled</button>
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('judge')} style={effectiveRole === 'judge' ? styles.activeTab : styles.tab}>Rozhodčí Pohled</button>
+          )}
+          {profile?.role === 'superadmin' && (
+            <button onClick={() => setSimulatedRole('speaker')} style={effectiveRole === 'speaker' ? styles.activeTab : styles.tab}>Spíkr</button>
+          )}
+          <button onClick={() => setSimulatedRole('player')} style={effectiveRole === 'player' ? styles.activeTab : styles.tab}>Hráč Pohled</button>
         </div>
+      )}
 
-        {/* HLAVNÍ OBSAH */}
-        <div className="print-area">
-          {/* ŽLUTÁ VYSÍLAČKA */}
-          {['admin', 'superadmin', 'judge', 'speaker'].includes(userRole) && (
-            <div style={{ ...styles.card, backgroundColor: '#ffff00', border: '4px solid #ccaa00' }}>
-              <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>📳 ŽLUTÁ VYSÍLAČKA</h3>
-              <div style={{ background: '#fff', padding: '15px', borderRadius: '8px', border: '1px inset #ccc', minHeight: '50px', fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '10px' }}>
-                {events.find(e => e.is_locked || e.id === adminSelectedEvent || e.id === judgeEvent)?.internal_message || "Ticho na lince..."}
-              </div>
-              <button onClick={() => handleUpdateInternalMessage(events.find(e => e.is_locked || e.id === adminSelectedEvent || e.id === judgeEvent)?.id, events.find(e => e.is_locked || e.id === adminSelectedEvent || e.id === judgeEvent)?.internal_message)} style={{ ...styles.button, background: '#333' }}>Poslat zprávu štábu</button>
-            </div>
-          )}
+      <div className="no-print" style={styles.brandHeader}>
+        <img src="/brand.jpg" alt="Logo" style={styles.logo} onError={(e) => e.target.style.display='none'} />
+        <h1 style={styles.title}>Westernové hobby závody</h1>
+        <p style={styles.subtitle}>POD HUMPRECHTEM</p>
+      </div>
 
-          {/* HRÁČSKÉ PŘIHLAŠOVÁNÍ */}
-          {userRole === 'player' && (
-            <div style={styles.card}>
-              <h2 style={{ marginTop: 0 }}>🏆 Přihláška na závody</h2>
-              <div style={{ background: '#fdf6e3', padding: '20px', borderRadius: '12px', border: '1px solid #eee' }}>
-                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Jméno jezdce:</label>
-                <input style={styles.input} type="text" placeholder="Pokud se liší od profilu" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} />
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div>
-                    <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Datum narození jezdce:</label>
-                    <input style={styles.input} type="date" value={riderBirthDate} onChange={e => setRiderBirthDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Kategorie:</label>
-                    <select style={styles.input} value={riderAgeCategory} onChange={e => setRiderAgeCategory(e.target.value)}>
-                      <option value="18+">Dospělý (18+)</option>
-                      <option value="<18">Dítě / Mládež</option>
-                    </select>
-                  </div>
-                </div>
-
-                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Závod:</label>
-                <select style={styles.input} value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
-                  <option value="">-- Vyberte termín --</option>
-                  {events.filter(e => !e.is_locked).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-
-                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Kůň:</label>
-                <select style={styles.input} value={selectedHorse} onChange={e => setSelectedHorse(e.target.value)}>
-                  <option value="">-- Vyberte koně --</option>
-                  {myHorses.map(h => <option key={h.id} value={h.name}>{h.name}</option>)}
-                  <option value="new">+ Přidat nového koně</option>
-                </select>
-
-                {selectedHorse === 'new' && (
-                  <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
-                    <input style={styles.input} placeholder="Jméno koně" value={newHorseName} onChange={e => setNewHorseName(e.target.value)} />
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <input style={styles.input} type="date" title="Datum narození koně" value={horseBirthDate} onChange={e => setHorseBirthDate(e.target.value)} />
-                      <input style={styles.input} placeholder="ID koně (číslo průkazu)" value={horseIdNumber} onChange={e => setHorseIdNumber(e.target.value)} />
-                    </div>
-                  </div>
-                )}
-
-                <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>Disciplíny:</label>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-                  {pricing.map(d => (
-                    <label key={d.id} style={{ padding: '10px 15px', background: selectedDisciplines.find(x => x.id === d.id) ? '#3e2723' : '#fff', color: selectedDisciplines.find(x => x.id === d.id) ? '#fff' : '#000', borderRadius: '25px', cursor: 'pointer', border: '1px solid #ddd', fontSize: '0.9rem' }}>
-                      <input type="checkbox" style={{ display: 'none' }} onChange={() => {
-                        const exists = selectedDisciplines.find(x => x.id === d.id);
-                        setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
-                      }} />
-                      {d.discipline_name} ({d.price} Kč)
-                    </label>
-                  ))}
-                </div>
-
-                <button onClick={handleRaceRegistration} style={{ ...styles.button, width: '100%', padding: '15px', fontSize: '1.2rem' }}>ODESLAT PŘIHLÁŠKU</button>
-              </div>
-
-              <h3 style={{ marginTop: '30px' }}>Moje aktivní přihlášky</h3>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Závod</th>
-                    <th style={styles.th}>Kůň</th>
-                    <th style={styles.th}>Disciplína</th>
-                    <th style={styles.th}>Stav / Skóre</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allRegistrations.filter(r => r.user_id === user.id).map(r => {
-                    const score = scoresheets.find(s => s.participant_id === r.id);
-                    return (
-                      <tr key={r.id}>
-                        <td style={styles.td}>{events.find(e => e.id === r.event_id)?.name}</td>
-                        <td style={styles.td}>{r.horse_name}</td>
-                        <td style={styles.td}>{r.discipline}</td>
-                        <td style={styles.td}>
-                          {score ? (score.is_dq ? <span style={{ color: 'red', fontWeight: 'bold' }}>DQ</span> : <strong>{score.total_score} b.</strong>) : <span style={{ color: '#888' }}>Čeká na start</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* ROZHODČÍ PANEL */}
-          {(userRole === 'judge' || userRole === 'superadmin') && (
-            <div style={styles.card}>
-              <h2>⚖️ Rozhodčí panel</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                <select style={styles.input} value={judgeEvent} onChange={e => setJudgeEvent(e.target.value)}>
-                  <option value="">-- Vyberte uzamčený závod --</option>
-                  {events.filter(e => e.is_locked).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-                <select style={styles.input} value={judgeDiscipline} onChange={e => handleJudgeDisciplineChange(judgeEvent, e.target.value)}>
-                  <option value="">-- Vyberte disciplínu --</option>
-                  {activeJudgeDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-
-              {evaluatingParticipant ? (
-                <div style={{ padding: '20px', border: '2px solid #5d4037', borderRadius: '12px' }}>
-                  <h3>Hodnocení: {evaluatingParticipant.rider_name} ({evaluatingParticipant.start_number})</h3>
-                  <div style={{ background: '#ffebee', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '2px solid red', textAlign: 'center' }}>
-                    <label style={{ fontSize: '1.5rem', color: 'red', fontWeight: 'bold', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={isDq} onChange={e => setIsDq(e.target.checked)} style={{ transform: 'scale(1.5)', marginRight: '10px' }} /> DISKVALIFIKACE (DQ)
-                    </label>
-                  </div>
-                  {!isDq && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-                      <div>
-                        <h4>Manévry</h4>
-                        {maneuverScores.map((s, i) => (
-                          <div key={i} style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>M{i + 1}:</span>
-                            <select value={s} onChange={e => handleManeuverChange(i, e.target.value)}>
-                              {["-1.5", "-1", "-0.5", "0", "+0.5", "+1", "+1.5"].map(v => <option key={v} value={v}>{v}</option>)}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                      <div>
-                        <h4>Penalty</h4>
-                        {penaltyScores.map((s, i) => (
-                          <div key={i} style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>P{i + 1}:</span>
-                            <input type="number" step="0.5" value={s} onChange={e => handlePenaltyChange(i, e.target.value)} style={{ width: '50px' }} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <h2 style={{ textAlign: 'right' }}>Celkové skóre: {isDq ? 'DQ' : calculateTotalScore()}</h2>
-                  <button onClick={saveScore} style={{ ...styles.button, width: '100%', height: '60px' }}>ULOŽIT HODNOCENÍ</button>
-                  <button onClick={() => setEvaluatingParticipant(null)} style={{ ...styles.button, background: '#ccc', width: '100%', marginTop: '10px' }}>ZAVŘÍT</button>
-                </div>
+      {!user ? (
+        <div className="no-print" style={styles.card}>
+          <h2 style={{textAlign: 'center', color: '#5d4037', marginBottom: '15px'}}>{isSignUp ? 'Nová registrace' : 'Přihlášení'}</h2>
+          <form onSubmit={handleAuth} style={styles.form}>
+            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
+            <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
+            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT SE' : 'VSTOUPIT'}</button>
+          </form>
+          <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
+            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
+          </button>
+        </div>
+      ) : (
+        <div style={effectiveRole === 'player' ? {maxWidth: '900px', margin: '0 auto'} : styles.mainGrid}>
+          
+          {effectiveRole !== 'player' && (
+            <div className="no-print" style={styles.sideCard}>
+              <h3>Můj Profil</h3>
+              {editMode ? (
+                <form onSubmit={updateProfile}>
+                  <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
+                  <input style={styles.inputSmall} type="email" placeholder="Email" value={profile?.email || user?.email || ''} onChange={e => setProfile({...profile, email: e.target.value})} required/>
+                  <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} required/>
+                  <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                  <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} required/>
+                  <button type="submit" style={styles.btnSave}>Uložit profil</button>
+                  <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px'}}>Zrušit</button>
+                </form>
               ) : (
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>DRAW</th>
-                      <th style={styles.th}>Záda</th>
-                      <th style={styles.th}>Jezdec / Kůň</th>
-                      <th style={styles.th}>Stav</th>
-                      <th style={styles.th}>Akce</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {judgeStartList.map(r => (
-                      <tr key={r.id}>
-                        <td style={styles.td}>
-                          <input type="number" defaultValue={r.draw_order} onBlur={e => updateParticipantDraw(r.id, e.target.value)} style={{ width: '50px', padding: '5px', fontWeight: 'bold' }} />
-                        </td>
-                        <td style={styles.td}><strong>{r.start_number}</strong></td>
-                        <td style={styles.td}>{r.rider_name}<br /><small>{r.horse_name}</small></td>
-                        <td style={styles.td}>
-                          {scoresheets.some(s => s.participant_id === r.id) ? '✅ Hotovo' : '⏳ Čeká'}
-                        </td>
-                        <td style={styles.td}>
-                          <button onClick={() => openScoresheet(r)} style={styles.secondaryButton}>Hodnotit</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div>
+                  <p><strong>{profile?.full_name || 'Nevyplněné jméno'}</strong></p>
+                  <p>E-mail: {profile?.email || user?.email}</p>
+                  <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
+                  {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city ) && (
+                    <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
+                  )}
+                  <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
+                  <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
+                </div>
               )}
             </div>
           )}
 
-          {/* SPÍKR PANEL */}
-          {(userRole === 'speaker' || userRole === 'superadmin') && (
-            <div style={styles.card}>
-              <h2>🎙️ Pohled Hlasatele</h2>
-              {speakerDiscipline ? (
-                <div>
-                  <h3 style={{ textAlign: 'center', background: '#3e2723', color: '#fff', padding: '10px', borderRadius: '8px' }}>AKTIVNÍ: {speakerDiscipline}</h3>
-                  <table style={{ ...styles.table, fontSize: '1.2rem' }}>
-                    <tbody>
-                      {speakerStartList.map(r => {
-                        const sc = scoresheets.find(s => s.participant_id === r.id);
-                        return (
-                          <tr key={r.id} style={{ borderBottom: '2px solid #ddd' }}>
-                            <td style={{ padding: '15px' }}>{r.draw_order}.</td>
-                            <td style={{ padding: '15px', fontWeight: 'bold', fontSize: '1.5rem' }}>{r.start_number}</td>
-                            <td style={{ padding: '15px' }}>{r.rider_name}<br /><small>{r.horse_name}</small></td>
-                            <td style={{ padding: '15px', textAlign: 'right', fontWeight: 'bold' }}>
-                              {sc ? (sc.is_dq ? <span style={{ color: 'red' }}>DQ</span> : `${sc.total_score} b.`) : '---'}
-                            </td>
+          <div className="print-area" style={styles.card}>
+            {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
+              <div>
+                <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
+                  <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', paddingBottom: '5px'}}>
+                    <button onClick={() => setAdminSelectedEvent('')} style={!adminSelectedEvent ? styles.activeTab : styles.tab}>Nastavení Závodů</button>
+                    {effectiveRole === 'superadmin' && (
+                      <button onClick={() => setAdminSelectedEvent('accounts')} style={adminSelectedEvent === 'accounts' ? {...styles.activeTab, background: '#e65100'} : {...styles.tab, background: '#e65100'}}>Vytvořit Účet</button>
+                    )}
+                    <button onClick={() => setAdminSelectedEvent('telegram')} style={adminSelectedEvent === 'telegram' ? {...styles.activeTab, background: '#0288d1'} : {...styles.tab, background: '#0288d1'}}>📱 Telegram Zprávy</button>
+                    {events.map(ev => (
+                      <button key={ev.id} onClick={() => setAdminSelectedEvent(ev.id)} style={adminSelectedEvent === ev.id ? styles.activeTab : styles.tab}>
+                        Detail: {ev.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {!adminSelectedEvent && (
+                  <div className="no-print">
+                    <div style={styles.adminSection}>
+                      <h4 style={{margin: '0 0 10px 0'}}>Termíny závodů</h4>
+                      <form onSubmit={handleCreateEvent} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
+                        <input type="text" placeholder="Název" value={newEventName} onChange={e => setNewEventName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
+                        <input type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} style={{...styles.inputSmall, width: 'auto'}} required/>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+                          <span>Čísla od:</span>
+                          <input type="number" value={newStartNumFrom} onChange={e => setNewStartNumFrom(e.target.value)} style={{...styles.inputSmall, width: '70px'}} required/>
+                          <span>do:</span>
+                          <input type="number" value={newStartNumTo} onChange={e => setNewStartNumTo(e.target.value)} style={{...styles.inputSmall, width: '70px'}} required/>
+                        </div>
+                        <button type="submit" style={styles.btnSave}>Vypsat závod</button>
+                      </form>
+                      <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
+                        <thead>
+                          <tr style={{background: '#eee', textAlign: 'left'}}>
+                            <th style={{padding: '8px'}}>Název</th>
+                            <th style={{padding: '8px'}}>Datum</th>
+                            <th style={{padding: '8px'}}>Rozsah čísel</th>
+                            <th style={{padding: '8px'}}>Stav</th>
+                            <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <p style={{ textAlign: 'center', padding: '50px' }}>Čekám na zahájení disciplíny rozhodčím...</p>}
-            </div>
-          )}
+                        </thead>
+                        <tbody>
+                          {events.map(ev => (
+                            <tr key={ev.id} style={{borderBottom: '1px solid #eee', background: ev.is_locked ? '#fff3e0' : 'transparent'}}>
+                              <td style={{padding: '8px'}}><strong>{ev.name}</strong></td>
+                              <td style={{padding: '8px'}}>{new Date(ev.event_date).toLocaleDateString()}</td>
+                              <td style={{padding: '8px'}}>{ev.start_num_from || 1} - {ev.start_num_to || 200}</td>
+                              <td style={{padding: '8px', color: ev.is_locked ? '#e65100' : '#2e7d32', fontWeight: 'bold'}}>
+                                {ev.is_locked ? 'Uzamčeno' : 'Otevřeno'}
+                              </td>
+                              <td style={{padding: '8px', textAlign: 'center'}}>
+                                <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline'}}>
+                                  {ev.is_locked ? 'Odemknout' : 'Uzamknout'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
 
-          {/* ADMIN PANEL */}
-          {(userRole === 'admin' || userRole === 'superadmin') && !evaluatingParticipant && (
-            <div className="no-print">
-              <div style={styles.card}>
-                <h3>⚙️ Administrace Závodů</h3>
-                <form onSubmit={handleCreateEvent} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                  <input style={styles.input} placeholder="Název závodů" value={newEventName} onChange={e => setNewEventName(e.target.value)} required />
-                  <input style={styles.input} type="date" value={newEventDate} onChange={e => setNewEventDate(e.target.value)} required />
-                  <button type="submit" style={styles.button}>VYPSAT</button>
-                </form>
+                    <div style={styles.adminSection}>
+                      <h4 style={{margin: '0 0 10px 0'}}>Ceník disciplín + Nahrání úlohy (PDF/JPG)</h4>
+                      <form onSubmit={handleCreatePricing} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '15px'}}>
+                        <input type="text" placeholder="Nová disciplína..." value={newDiscName} onChange={e => setNewDiscName(e.target.value)} style={{...styles.inputSmall, flex: 1, minWidth: '150px'}} required/>
+                        <input type="number" placeholder="Cena" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '90px'}} required/>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
+                          <label style={{fontSize: '0.85rem'}}>Úloha:</label>
+                          <input type="file" accept=".pdf,image/*" onChange={e => setPatternFile(e.target.files[0])} style={{...styles.inputSmall, width: 'auto'}} />
+                        </div>
+                        <button type="submit" style={styles.btnSave}>Přidat</button>
+                      </form>
 
-                <div style={styles.adminSection}>
-                  <h4>Ceník a Úlohy</h4>
-                  <form onSubmit={handleCreatePricing} style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                    <input style={styles.input} placeholder="Disciplína" value={newDiscName} onChange={e => setNewDiscName(e.target.value)} required />
-                    <input style={styles.input} type="number" placeholder="Cena" value={newDiscPrice} onChange={e => setNewDiscPrice(e.target.value)} required />
-                    <input type="file" onChange={e => setPatternFile(e.target.files[0])} />
-                    <button type="submit" style={{ ...styles.button, background: '#2e7d32' }}>PŘIDAT</button>
-                  </form>
-                  <table style={styles.table}>
-                    <tbody>
-                      {pricing.map(p => (
-                        <tr key={p.id}>
-                          <td>{p.discipline_name}</td>
-                          <td>{p.price} Kč</td>
-                          <td>{p.pattern_url && <a href={p.pattern_url} target="_blank">📄 Úloha</a>}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>Smazat</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div style={{ marginTop: '20px' }}>
-                  <h4>Aktivní Události</h4>
-                  {events.map(ev => (
-                    <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f5f5f5', borderRadius: '8px', marginBottom: '10px', alignItems: 'center' }}>
-                      <span><strong>{ev.name}</strong> ({new Date(ev.event_date).toLocaleDateString()})</span>
-                      <div style={{ display: 'flex', gap: '10px' }}>
-                        <button onClick={() => toggleEventLock(ev.id, ev.is_locked, ev.name)} style={{ ...styles.secondaryButton, background: ev.is_locked ? '#ffb300' : '#4caf50' }}>{ev.is_locked ? '🔓 Odemknout' : '🔒 Uzamknout'}</button>
-                        <button onClick={() => handleEndCompetitionAndSendResults(ev.id)} style={{ ...styles.button, background: '#1a237e' }}>🏆 Výsledky na TG</button>
+                      <div style={{maxHeight: '300px', overflowY: 'auto', border: '1px solid #eee', borderRadius: '6px'}}>
+                        <table style={{width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse'}}>
+                          <thead style={{position: 'sticky', top: 0, background: '#e0e0e0'}}>
+                            <tr style={{textAlign: 'left'}}>
+                              <th style={{padding: '10px'}}>Disciplína</th>
+                              <th style={{padding: '10px', width: '80px'}}>Cena</th>
+                              <th style={{padding: '10px', width: '80px', textAlign: 'center'}}>Úloha</th>
+                              <th style={{padding: '10px', width: '120px', textAlign: 'center'}}>Akce</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pricing.map(p => (
+                              <tr key={p.id} style={{borderBottom: '1px solid #eee', background: editingPricingId === p.id ? '#fff9c4' : 'transparent'}}>
+                                <td style={{padding: '10px'}}>{p.discipline_name}</td>
+                                {editingPricingId === p.id ? (
+                                  <>
+                                    <td style={{padding: '10px'}}>
+                                      <input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '70px'}} /> Kč
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <input type="file" accept=".pdf,image/*" onChange={e => setEditPatternFile(e.target.files[0])} style={{width: '130px', fontSize: '0.75rem'}} />
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <button onClick={() => handleSaveEditPricing(p.id, p.discipline_name)} style={{...styles.btnSave, padding: '5px 10px', marginRight: '5px'}}>Uložit</button>
+                                      <button onClick={() => setEditingPricingId(null)} style={{background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontWeight: 'bold'}}>Zrušit</button>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td style={{padding: '10px'}}><strong>{p.price} Kč</strong></td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      {p.pattern_url ? (
+                                        <a href={p.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0277bd'}}>Zobrazit</a>
+                                      ) : '-'}
+                                    </td>
+                                    <td style={{padding: '10px', textAlign: 'center'}}>
+                                      <button onClick={() => startEditingPricing(p)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px', fontWeight: 'bold'}}>Edit</button>
+                                      <button onClick={() => handleDeletePricing(p.id, p.discipline_name)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Smazat</button>
+                                    </td>
+                                  </>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+                  </div>
+                )}
 
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          .print-area { width: 100% !important; }
-          .page-break { page-break-after: always; }
-        }
-      `}</style>
+                {adminSelectedEvent === 'accounts' && effectiveRole === 'superadmin' && (
+                  <div className="no-print">
+                    <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', margin: '20px 0'}}>
+                      <h3 style={{color: '#e65100', marginTop: 0}}>Nové uživatelské přístupy</h3>
+                      <p>Zde můžete vytvořit účet pro Hlasatele nebo Rozhodčího. Přístupy se odešlou na zadaný e-mail.</p>
+                      <form onSubmit={handleCreateAccount} style={{display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '400px'}}>
+                        <input type="email" placeholder="E-mailová adresa" value={newAccountEmail} onChange={e => setNewAccountEmail(e.target.value)} style={styles.inputSmall} required/>
+                        <select value={newAccountRole} onChange={e => setNewAccountRole(e.target.value)} style={styles.inputSmall}>
+                          <option value="judge">Rozhodčí (Judge)</option>
+                          <option value="speaker">Hlasatel (Speaker)</option>
+                          <option value="admin">Administrátor</option>
+                        </select>
+                        <button type="submit" style={{...styles.btnSave, background: '#e65100'}}>Vygenerovat heslo a odeslat</button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {adminSelectedEvent === 'telegram' && (
+                  <div className="no-print">
+                    <div style={{background: '#e3f2fd', padding: '20px', borderRadius: '8px', border: '2px solid #0288d1', textAlign: 'center'}}>
+                      <h3 style={{color: '#0288d1', marginTop: 0}}>📢 Manuální odeslání zprávy do kanálu</h3>
+                      <p>Tato zpráva se rozešle všem sledujícím.</p>
+                      <input type="text" placeholder="Napište vzkaz pro jezdce..." value={manualTgMessage} onChange={e => setManualTgMessage(e.target.value)} style={{...styles.input, fontSize: '1.1rem', padding: '15px'}} />
+                      <button onClick={sendManualTgMessage} style={{...styles.btnSave, background: '#0288d1', padding: '15px 30px', fontSize: '1.1rem', marginTop: '10px'}}>Odeslat Zprávu Nyní</button>
+                    </div>
+                  </div>
+                )}
+
+                {adminSelectedEvent && adminSelectedEvent !== 'telegram' && adminSelectedEvent !== 'accounts' && (
+                  <div className={printMode ? 'print-area' : ''}>
+                    
+                    <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                      <div>
+                        <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz pro Spíkra:</strong>
+                        <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                      </div>
+                      <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit vzkaz</button>
+                    </div>
+
+                    <div className="no-print" style={{marginBottom: '20px', background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                      <div>
+                        <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů (Vidí všichni):</strong>
+                        <span style={{fontSize: '1rem'}}>{events.find(e => e.id === adminSelectedEvent)?.schedule || 'Plán nebyl zadán'}</span>
+                      </div>
+                      <button onClick={() => handleUpdateSchedule(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.schedule)} style={{...styles.btnOutline, margin: 0}}>Upravit plán</button>
+                    </div>
+
+                    <div className="no-print" style={{marginBottom: '20px', background: '#fff9c4', padding: '20px', borderRadius: '8px', border: '2px solid #fbc02d', textAlign: 'center'}}>
+                      <h3 style={{margin: '0 0 10px 0', color: '#f57f17'}}>Konec závodů</h3>
+                      <p style={{margin: '0 0 15px 0', color: '#555'}}>Tímto tlačítkem vygenerujete celkové výsledky a okamžitě je odešlete pro všechny sledující.</p>
+                      <button onClick={() => handleEndCompetitionAndSendResults(adminSelectedEvent)} style={{...styles.btnSave, background: '#fbc02d', color: '#000', fontSize: '1.2rem', padding: '15px 30px'}}>🏆 Ukončit závody a vyhlásit výsledky</button>
+                    </div>
+
+                    <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'} style={styles.adminSection}>
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 className="no-print" style={{margin: 0}}>Kompletní startovní listina</h4>
+                        <h2 style={{display: 'none', margin: '0 0 20px 0', textAlign: 'center', borderBottom: '2px solid black', paddingBottom: '10px'}} className="print-only">Startovní listina: {events.find(e => e.id === adminSelectedEvent)?.name}</h2>
+                        <button className="no-print" onClick={() => handlePrint('startlist')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Startku</button>
+                      </div>
+                      <div style={{overflowX: 'auto'}}>
+                        <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse'}}>
+                          <thead>
+                            <tr style={{background: '#eee', textAlign: 'left'}}>
+                              <th style={{padding: '8px', width: '60px'}}>Záda</th>
+                              <th style={{padding: '8px', width: '60px'}}>Draw</th>
+                              <th style={{padding: '8px'}}>Jezdec</th>
+                              <th style={{padding: '8px'}}>Kůň</th>
+                              <th style={{padding: '8px'}}>Disciplína</th>
+                              <th className="no-print" style={{padding: '8px'}}>Poznámka k platbě</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allRegistrations.filter(r => r.event_id === adminSelectedEvent).map((r, i) => (
+                              <tr key={i} style={{borderBottom: '1px solid #eee'}}>
+                                <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
+                                <td style={{padding: '8px'}}><strong>{r.draw_order || '-'}</strong></td>
+                                <td style={{padding: '8px'}}>{r.rider_name}</td>
+                                <td style={{padding: '8px'}}>{r.horse_name}</td>
+                                <td style={{padding: '8px'}}>{r.discipline}</td>
+                                <td className="no-print" style={{padding: '8px'}}>
+                                  <input 
+                                    type="text" 
+                                    defaultValue={r.payment_note || ''} 
+                                    onBlur={(e) => updatePaymentNote(r.id, e.target.value, r.rider_name)} 
+                                    placeholder="např. Hotově"
+                                    style={{padding: '5px', width: '100px', fontSize: '0.8rem', border: '1px solid #ccc', borderRadius: '4px'}}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className={printMode === 'startlist' ? 'no-print' : 'print-area'} style={{...styles.adminSection, border: printMode ? 'none' : '1px solid #ddd'}}>
+                      <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 style={{margin: 0}}>Scoresheety k tisku</h4>
+                        <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Oficiální Scoresheety</button>
+                      </div>
+                      
+                      {renderPrintableScoresheets(adminSelectedEvent)}
+
+                    </div>
+                  </div>
+                )}
+
+                {effectiveRole === 'superadmin' && !adminSelectedEvent && (
+                  <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
+                    <h4 style={{margin: '0 0 10px 0'}}>Logy systému</h4>
+                    <div style={{maxHeight: '300px', overflowY: 'auto', background: '#fff', padding: '10px'}}>
+                      {systemLogs.length === 0 ? <p>Žádné záznamy.</p> : (
+                        <ul style={{listStyleType: 'none', padding: 0, margin: 0, fontSize: '0.85rem'}}>
+                          {systemLogs.map(log => (
+                            <li key={log.id} style={{borderBottom: '1px solid #eee', padding: '8px 0'}}>
+                              <span style={{color: '#888'}}>{new Date(log.created_at).toLocaleString('cs-CZ')}</span> - 
+                              <strong style={{marginLeft: '10px'}}>{log.action}</strong>
+                              <div style={{color: '#555', marginTop: '4px', fontSize: '0.8rem'}}>{JSON.stringify(log.details)}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {effectiveRole === 'judge' && (
+              <div className={printMode ? 'print-area' : ''}>
+                <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '20px'}}>
+                  <h3 style={{marginTop: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
+                </div>
+
+                {judgeEvent && !evaluatingParticipant && (
+                  <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                    <div>
+                      <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz pro Spíkra:</strong>
+                      <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                    </div>
+                    <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit vzkaz</button>
+                  </div>
+                )}
+                
+                <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'}>
+                  {!evaluatingParticipant && (
+                    <div>
+                      <label style={styles.label}>Vyberte uzamčený závod k hodnocení:</label>
+                      <select style={styles.input} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); handleJudgeDisciplineChange(e.target.value, ''); }}>
+                        <option value="">-- Zvolte závod --</option>
+                        {events.filter(ev => ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                      </select>
+
+                      {judgeEvent && (
+                        <div>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end'}}>
+                            <div style={{flex: 1}}>
+                              <label style={styles.label}>Vyberte disciplínu (Zrcadlí se Spíkrovi):</label>
+                              <select style={styles.input} value={judgeDiscipline} onChange={e => handleJudgeDisciplineChange(judgeEvent, e.target.value)}>
+                                <option value="">-- Zvolte disciplínu --</option>
+                                {activeJudgeDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {evaluatingParticipant && (
+                    <div style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd', display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '20px'}}>
+                      
+                      <div style={{flex: 2, minWidth: '300px'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                          <h2 style={{marginTop: 0}}>{evaluatingParticipant.discipline}</h2>
+                          <h2 style={{marginTop: 0}}>Startovní číslo: {evaluatingParticipant.start_number}</h2>
+                        </div>
+                        <p style={{fontSize: '1.2rem', marginBottom: '30px'}}>Jezdec: <strong>{evaluatingParticipant.rider_name}</strong> | Kůň: <strong>{evaluatingParticipant.horse_name}</strong></p>
+                        
+                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px'}}>
+                          <div>
+                            <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Manévry (Skóre)</h4>
+                            {maneuverScores.map((score, index) => (
+                              <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center', gap: '10px'}}>
+                                <input type="text" placeholder={`Manévr ${index + 1}`} value={maneuverNames[index]} onChange={(e) => handleManeuverNameChange(index, e.target.value)} style={{padding: '5px', borderRadius: '4px', border: '1px solid #ccc', flex: 1}} />
+                                <select value={score} onChange={(e) => handleManeuverChange(index, e.target.value)} style={{padding: '5px', borderRadius: '4px', border: '1px solid #ccc'}}>
+                                  <option value="1.5">+1.5 (Excellent)</option>
+                                  <option value="1.0">+1.0 (Very Good)</option>
+                                  <option value="0.5">+0.5 (Good)</option>
+                                  <option value="0">0 (Average)</option>
+                                  <option value="-0.5">-0.5 (Poor)</option>
+                                  <option value="-1.0">-1.0 (Very Poor)</option>
+                                  <option value="-1.5">-1.5 (Extremely Poor)</option>
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <h4 style={{borderBottom: '1px solid #ccc', paddingBottom: '5px'}}>Penalizace (Trestné body)</h4>
+                            {penaltyScores.map((penalty, index) => (
+                              <div key={index} style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center'}}>
+                                <strong>U manévru {index + 1}</strong>
+                                <input 
+                                  type="number" 
+                                  min="0" 
+                                  step="0.5" 
+                                  value={penalty} 
+                                  onChange={(e) => handlePenaltyChange(index, e.target.value)} 
+                                  style={{padding: '5px', width: '60px', borderRadius: '4px', border: '1px solid #ccc', textAlign: 'center'}}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div style={{marginTop: '30px', padding: '15px', background: '#e1f5fe', borderRadius: '8px', textAlign: 'right', border: '2px solid black'}}>
+                          <span style={{fontSize: '1.2rem', color: '#000'}}>Základ: 70 | </span>
+                          <strong style={{fontSize: '1.5rem', color: '#000'}}>CELKOVÉ SKÓRE: {calculateTotalScore()}</strong>
+                        </div>
+
+                        <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+                          <button onClick={saveScore} style={{...styles.btnSave, background: '#0277bd', flex: 1, padding: '15px', fontSize: '1.1rem'}}>Uložit hodnocení vč. Podpisu</button>
+                          <button onClick={() => setEvaluatingParticipant(null)} style={{...styles.btnOutline, flex: 1, marginTop: 0}}>Zpět na listinu</button>
+                        </div>
+                      </div>
+
+                      <div className="no-print" style={{flex: 1, minWidth: '250px', background: '#fff9c4', padding: '15px', borderRadius: '8px', border: '1px solid #fbc02d'}}>
+                        <h4 style={{marginTop: 0, color: '#f57f17', borderBottom: '1px solid #fbc02d', paddingBottom: '5px'}}>Tahák (Pravidla)</h4>
+                        <ul style={{paddingLeft: '20px', fontSize: '0.9rem', color: '#333'}}>
+                          {getRulesForDiscipline(evaluatingParticipant.discipline).map((rule, idx) => (
+                            <li key={idx} style={{marginBottom: '8px'}}>{rule}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TABULKA STARTOVNÍ LISTINY SE ZOBRAZÍ VŽDY KDYŽ JE VYBRANÁ DISCIPLÍNA */}
+                  {judgeEvent && judgeDiscipline && (
+                    <div style={{marginTop: '20px'}}>
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                        <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
+                        <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '5px 10px'}}>📣 Oznámit konec disciplíny navenek</button>
+                      </div>
+                      <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                        <thead>
+                          <tr style={{background: '#e1f5fe', textAlign: 'left'}}>
+                            <th style={{padding: '10px'}}>Draw</th>
+                            <th style={{padding: '10px'}}>Záda</th>
+                            <th style={{padding: '10px'}}>Jezdec</th>
+                            <th style={{padding: '10px'}}>Kůň</th>
+                            <th style={{padding: '10px', textAlign: 'center'}}>Stav</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {judgeStartList.length > 0 ? judgeStartList.map(r => {
+                            const isScored = scoresheets.some(s => s.participant_id === r.id);
+                            const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                            
+                            return (
+                              <tr key={r.id} style={{borderBottom: '1px solid #eee', background: isScored ? '#f1f8e9' : 'transparent'}}>
+                                <td style={{padding: '10px', fontWeight: 'bold', color: '#0277bd', fontSize: '1.1rem'}}>
+                                  <input type="number" defaultValue={r.draw_order || ''} onBlur={e => updateParticipantDraw(r.id, e.target.value)} style={{ width: '50px', padding: '5px', fontWeight: 'bold', border: '1px solid #ccc', borderRadius: '4px' }} />
+                                </td>
+                                <td style={{padding: '10px', fontWeight: 'bold'}}>{r.start_number}</td>
+                                <td style={{padding: '10px'}}>{r.rider_name}</td>
+                                <td style={{padding: '10px'}}>{r.horse_name}</td>
+                                <td style={{padding: '10px', textAlign: 'center'}}>
+                                  {isScored ? (
+                                    <button onClick={() => openScoresheet(r)} style={{...styles.btnOutline, padding: '5px 10px', border: '1px solid #4caf50', color: '#4caf50'}}>Opravit ({scoreObj.total_score})</button>
+                                  ) : (
+                                    <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd'}}>Hodnotit</button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr><td colSpan="5" style={{padding: '15px', textAlign: 'center'}}>Žádní přihlášení jezdci.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {judgeEvent && !evaluatingParticipant && (
+                  <div className={printMode === 'scoresheets' ? 'print-area' : 'no-print'} style={{...styles.adminSection, marginTop: '30px', border: printMode ? 'none' : '1px solid #ddd'}}>
+                    <div className="no-print" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+                      <h4 style={{margin: 0}}>Scoresheety k tisku</h4>
+                      <button onClick={() => handlePrint('scoresheets')} style={{...styles.btnOutline, marginTop: 0, border: '2px solid #333', color: '#333'}}>🖨️ Vytisknout Oficiální Scoresheety</button>
+                    </div>
+                    {renderPrintableScoresheets(judgeEvent)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {effectiveRole === 'speaker' && (
+              <div className="no-print">
+                <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
+                  <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele</h3>
+                </div>
+                
+                {speakerEventId ? (
+                  <div>
+                    <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
+                      <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
+                      <span style={{fontSize: '1.2rem'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
+                    </div>
+
+                    {lockedEvent?.speaker_message && (
+                      <div style={{background: '#ffe0b2', border: '4px solid #e65100', padding: '20px', borderRadius: '12px', marginTop: '10px', marginBottom: '30px', textAlign: 'center'}}>
+                        <h3 style={{margin: '0 0 10px 0', color: '#e65100', textTransform: 'uppercase', letterSpacing: '2px'}}>🚨 Zpráva od pořadatele:</h3>
+                        <p style={{fontSize: '2rem', fontWeight: 'bold', margin: 0, color: '#e65100'}}>
+                          {lockedEvent?.speaker_message}
+                        </p>
+                      </div>
+                    )}
+
+                    {!speakerDiscipline ? (
+                      <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
+                        <h2>Čeká se na rozhodčího...</h2>
+                        <p>Zde se automaticky zobrazí listina.</p>
+                      </div>
+                    ) : (
+                      <div style={{marginTop: '30px'}}>
+                        <h2 style={{fontSize: '2rem', textAlign: 'center', color: '#5d4037', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>ARÉNA: {speakerDiscipline}</h2>
+                        <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
+                          <thead>
+                            <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
+                              <th style={{padding: '15px'}}>Draw</th>
+                              <th style={{padding: '15px'}}>Číslo</th>
+                              <th style={{padding: '15px'}}>Jezdec</th>
+                              <th style={{padding: '15px'}}>Kůň</th>
+                              <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {speakerStartList.length > 0 ? speakerStartList.map(r => {
+                              const isScored = scoresheets.some(s => s.participant_id === r.id);
+                              const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                              
+                              return (
+                                <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: isScored ? '#f1f8e9' : '#fff'}}>
+                                  <td style={{padding: '15px', fontWeight: 'bold', color: '#5d4037'}}>{r.draw_order}</td>
+                                  <td style={{padding: '15px', fontWeight: '900', fontSize: '1.8rem'}}>{r.start_number}</td>
+                                  <td style={{padding: '15px'}}>{r.rider_name}</td>
+                                  <td style={{padding: '15px'}}><strong>{r.horse_name}</strong></td>
+                                  <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: isScored ? '#2e7d32' : '#ccc'}}>
+                                    {isScored ? `${scoreObj.total_score} bodů` : 'Na trati'}
+                                  </td>
+                                </tr>
+                              );
+                            }) : (
+                              <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center', fontSize: '1.2rem'}}>Žádní přihlášení jezdci.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p style={{textAlign: 'center', padding: '20px', color: '#666'}}>Aktuálně neprobíhá žádný uzamčený závod.</p>
+                )}
+              </div>
+            )}
+
+            {effectiveRole === 'player' && (
+              <div className="no-print">
+                
+                <div style={{display: 'flex', gap: '10px', overflowX: 'auto', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
+                  <button onClick={() => setPlayerTab('main')} style={playerTab === 'main' ? styles.activeTab : styles.tab}>Závody a Přihlášky</button>
+                  <button onClick={() => setPlayerTab('profile')} style={playerTab === 'profile' ? styles.activeTab : styles.tab}>👤 Profil a Koně</button>
+                  <button onClick={() => setPlayerTab('telegram')} style={playerTab === 'telegram' ? {...styles.activeTab, background: '#0288d1'} : {...styles.tab, background: '#0288d1'}}>📱 Komunikační Kanál</button>
+                </div>
+
+                {playerTab === 'profile' && (
+                  <div style={{maxWidth: '600px', margin: '0 auto'}}>
+                    <div style={{...styles.adminSection, background: '#fff'}}>
+                      <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
+                      {editMode ? (
+                        <form onSubmit={updateProfile}>
+                          <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
+                          <input style={styles.inputSmall} type="email" placeholder="Email" value={profile?.email || user?.email || ''} onChange={e => setProfile({...profile, email: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} required/>
+                          <button type="submit" style={{...styles.btnSave, marginTop: '10px'}}>Uložit profil</button>
+                          <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px', marginTop: '10px'}}>Zrušit</button>
+                        </form>
+                      ) : (
+                        <div>
+                          <p><strong>{profile?.full_name || 'Nevyplněné jméno'}</strong></p>
+                          <p>E-mail: {profile?.email || user?.email}</p>
+                          <p>Telefon: {profile?.phone || 'Nevyplněno'}</p>
+                          <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
+                          <p>Obec: {profile?.city || 'Nevyplněno'}</p>
+                          {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city ) && (
+                            <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
+                          )}
+                          <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
+                          <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div style={{...styles.adminSection, background: '#fff', marginTop: '20px'}}>
+                      <h3 style={{ marginTop: 0 }}>🐎 Moji koně</h3>
+                      {myHorses.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#888' }}>Zatím žádní koně v historii.</p> : (
+                        <ul style={{ listStyle: 'none', padding: 0 }}>
+                          {myHorses.map(h => (
+                            <li key={h.id} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}><strong>{h.name}</strong> <small style={{color: '#888'}}>(Rok: {h.birth_year || 'Neznámý'} | ID: {h.horse_id_number || 'Neznámé'})</small></li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {playerTab === 'telegram' && (
+                  <div style={{background: '#e3f2fd', padding: '30px 20px', borderRadius: '8px', border: '1px solid #0288d1', textAlign: 'center', margin: '20px 0'}}>
+                    <h2 style={{color: '#0288d1', marginTop: 0}}>📱 Sledujte hlášení a výsledky!</h2>
+                    <p style={{fontSize: '1.1rem', color: '#333', marginBottom: '20px'}}>Připojte se k aplikaci Telegram a nic vám neuteče.</p>
+                    <a href="https://t.me/+xZ7MOtlAaX05YzA0" target="_blank" rel="noopener noreferrer" style={{...styles.btnSave, background: '#0288d1', textDecoration: 'none', display: 'inline-block', fontSize: '1.2rem', padding: '15px 30px'}}>Přidat se</a>
+                  </div>
+                )}
+
+                {playerTab === 'main' && (
+                  <div>
+                    <h3 style={{marginTop: 0}}>Nová přihláška k závodu</h3>
+                    
+                    <div style={{background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #0288d1', marginBottom: '15px'}}>
+                      <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Jméno a příjmení jezdce:</label>
+                      <input type="text" value={customRiderName} onChange={e => setCustomRiderName(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 15px 0'}} placeholder="Zadejte jméno jezdce" />
+                      
+                      <label style={{...styles.label, marginTop: 0, color: '#0288d1'}}>Věková kategorie jezdce:</label>
+                      <select value={riderAgeCategory} onChange={e => setRiderAgeCategory(e.target.value)} style={{...styles.input, border: '2px solid #0288d1', margin: '5px 0 0 0'}}>
+                        <option value="18+">18 a více let</option>
+                        <option value="<18">Méně než 18 let</option>
+                      </select>
+                    </div>
+
+                    <label style={styles.label}>Vyberte závod:</label>
+                    <select style={styles.input} value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)}>
+                      <option value="">-- Který závod pojedete? --</option>
+                      {events.filter(ev => !ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name} ({new Date(ev.event_date).toLocaleDateString()})</option>)}
+                    </select>
+
+                    <label style={styles.label}>Vyberte koně:</label>
+                    <select style={styles.input} value={selectedHorse} onChange={e => setSelectedHorse(e.target.value)}>
+                      <option value="">-- Vyberte koně z historie --</option>
+                      {myHorses.map(h => <option key={h.id} value={h.name}>{h.name}</option>)}
+                      <option value="new">+ Přidat nového koně</option>
+                    </select>
+                    {selectedHorse === 'new' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px', background: '#f5f5f5', padding: '15px', borderRadius: '8px' }}>
+                        <input type="text" placeholder="Napište jméno koně..." value={newHorseName} onChange={e => setNewHorseName(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63', gridColumn: 'span 2'}} />
+                        <input type="number" placeholder="Rok narození (např. 2018)" value={horseBirthYear} onChange={e => setHorseBirthYear(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63'}} />
+                        <input type="text" placeholder="ID koně (číslo průkazu)" value={horseIdNumber} onChange={e => setHorseIdNumber(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63'}} />
+                      </div>
+                    )}
+
+                    <label style={styles.label}>Disciplíny:</label>
+                    {pricing.length === 0 ? <p style={{color: 'red'}}>Ceník prázdný.</p> : (
+                      <div style={styles.disciplineList}>
+                        {pricing.map(d => (
+                          <div key={d.id} style={{display: 'flex', flexDirection: 'column', borderBottom: '1px solid #eee', background: selectedDisciplines.find(x => x.id === d.id) ? '#d7ccc8' : '#fff'}}>
+                            <div onClick={() => {
+                              const exists = selectedDisciplines.find(x => x.id === d.id);
+                              setSelectedDisciplines(exists ? selectedDisciplines.filter(x => x.id !== d.id) : [...selectedDisciplines, d]);
+                            }} style={{...styles.disciplineItem, borderBottom: 'none'}}>
+                              <span>{d.discipline_name}</span>
+                              <strong>{d.price} Kč</strong>
+                            </div>
+                            {d.pattern_url && (
+                              <div style={{padding: '0 12px 12px 12px'}}>
+                                <a href={d.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0288d1', fontSize: '0.85rem'}}>📄 Zobrazit úlohu k této disciplíně</a>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <div style={styles.priceTag}>
+                      Celkem k platbě: {selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} Kč
+                    </div>
+
+                    <button onClick={handleRaceRegistration} style={styles.btnSecondary}>
+                      ODESLAT PŘIHLÁŠKU
+                    </button>
+
+                    {allRegistrations.filter(r => r.user_id === user?.id).length > 0 && (
+                      <div style={{marginTop: '40px'}}>
+                        <h3 style={{borderBottom: '2px solid #8d6e63', paddingBottom: '10px'}}>Moje přihlášky</h3>
+                        
+                        {events.filter(e => allRegistrations.filter(r => r.user_id === user?.id).some(r => r.event_id === e.id) && e.schedule).map(ev => (
+                          <div key={ev.id} style={{background: '#f5f5f5', padding: '10px', borderRadius: '6px', marginBottom: '15px', borderLeft: '4px solid #8d6e63'}}>
+                            <strong style={{color: '#5d4037'}}>Plán pro závod {ev.name}:</strong><br/>
+                            {ev.schedule}
+                          </div>
+                        ))}
+
+                        <div style={{overflowX: 'auto'}}>
+                          <table style={{width: '100%', fontSize: '0.9rem', borderCollapse: 'collapse', marginTop: '10px'}}>
+                            <thead>
+                              <tr style={{background: '#eee', textAlign: 'left'}}>
+                                <th style={{padding: '8px'}}>Závod</th>
+                                <th style={{padding: '8px'}}>Jezdec</th>
+                                <th style={{padding: '8px'}}>Kůň</th>
+                                <th style={{padding: '8px'}}>Disciplína</th>
+                                <th style={{padding: '8px'}}>Záda</th>
+                                <th style={{padding: '8px'}}>Skóre</th>
+                                <th style={{padding: '8px', textAlign: 'center'}}>Akce</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {allRegistrations.filter(r => r.user_id === user?.id).map(r => {
+                                const eventObj = events.find(e => e.id === r.event_id);
+                                const eventName = eventObj?.name || 'Neznámý závod';
+                                const isEventLocked = eventObj?.is_locked || false;
+                                const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                                
+                                return (
+                                  <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
+                                    <td style={{padding: '8px'}}>{eventName}</td>
+                                    <td style={{padding: '8px', fontWeight: 'bold'}}>{r.rider_name}</td>
+                                    <td style={{padding: '8px'}}>{r.horse_name}</td>
+                                    <td style={{padding: '8px'}}>{r.discipline}</td>
+                                    <td style={{padding: '8px'}}><strong>{r.start_number}</strong></td>
+                                    <td style={{padding: '8px', fontWeight: 'bold', color: scoreObj ? '#2e7d32' : '#888'}}>
+                                      {scoreObj ? scoreObj.total_score : 'Čeká se'}
+                                    </td>
+                                    <td style={{padding: '8px', textAlign: 'center'}}>
+                                      {!isEventLocked ? (
+                                        <button onClick={() => handleCancelRegistration(r.id)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontWeight: 'bold'}}>Zrušit</button>
+                                      ) : (
+                                        <span style={{color: '#888', fontSize: '0.8rem'}}>Uzamčeno</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif' },
-  mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 3fr', gap: '20px', maxWidth: '1400px', margin: '0 auto' },
-  card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '20px' },
+  superAdminBar: { background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px' },
+  tab: { background: '#333', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' },
+  activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.85rem', whiteSpace: 'nowrap' },
+  brandHeader: { textAlign: 'center', marginBottom: '20px' },
+  logo: { width: '120px', borderRadius: '50%', border: '4px solid #5d4037' },
+  title: { color: '#5d4037', margin: '10px 0 0 0' },
+  subtitle: { color: '#8d6e63', fontSize: '0.8rem', letterSpacing: '2px', fontWeight: 'bold' },
+  mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 2.5fr', gap: '20px', maxWidth: '1100px', margin: '0 auto' },
+  card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: '100%', width: '100%' },
+  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content' },
+  adminSection: { padding: '15px', border: '1px solid #ddd', borderRadius: '8px', marginBottom: '15px', background: '#fafafa' },
   input: { width: '100%', padding: '12px', margin: '8px 0', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
-  button: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
-  secondaryButton: { background: 'transparent', border: '1px solid #5d4037', color: '#5d4037', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer' },
-  table: { width: '100%', borderCollapse: 'collapse', marginTop: '10px' },
-  th: { textAlign: 'left', padding: '10px', borderBottom: '2px solid #eee', background: '#fafafa' },
-  td: { padding: '10px', borderBottom: '1px solid #eee' },
-  adminSection: { border: '1px solid #ddd', padding: '15px', borderRadius: '8px', background: '#fdfdfd' },
-  loader: { border: '8px solid #f3f3f3', borderTop: '8px solid #5d4037', borderRadius: '50%', width: '60px', height: '60px', animation: 'spin 2s linear infinite', margin: '0 auto' }
+  inputSmall: { width: '100%', padding: '10px', margin: '5px 0', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' },
+  label: { fontSize: '0.9rem', fontWeight: 'bold', color: '#5d4037', display: 'block', marginTop: '15px' },
+  btnPrimary: { width: '100%', padding: '14px', background: '#5d4037', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' },
+  btnSecondary: { width: '100%', padding: '15px', background: '#8d6e63', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', marginTop: '20px', cursor: 'pointer' },
+  btnSignOut: { width: '100%', padding: '10px', background: '#e57373', color: 'white', border: 'none', borderRadius: '6px', marginTop: '20px', cursor: 'pointer' },
+  btnOutline: { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #5d4037', color: '#0277bd', borderRadius: '6px', cursor: 'pointer', marginTop: '10px' },
+  btnSave: { padding: '10px 15px', background: '#4caf50', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' },
+  btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.9rem', marginTop: '15px', display: 'block', width: '100%', textAlign: 'center' },
+  disciplineList: { maxHeight: '350px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '6px', marginTop: '8px' },
+  disciplineItem: { display: 'flex', justifyContent: 'space-between', padding: '12px', borderBottom: '1px solid #eee', cursor: 'pointer', fontSize: '0.95rem' },
+  priceTag: { marginTop: '15px', fontSize: '1.2rem', fontWeight: 'bold', textAlign: 'right', color: '#5d4037' },
+  loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4ece4' }
 };
