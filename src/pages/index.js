@@ -77,6 +77,7 @@ export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false); // STAV PRO RESET
   const [loading, setLoading] = useState(true);
   
   const [myHorses, setMyHorses] = useState([]);
@@ -127,6 +128,13 @@ export default function Home() {
 
   useEffect(() => {
     checkUser();
+    // ZACHYCENÍ RESETU HESLA Z URL
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      if (hash.includes('type=recovery')) {
+        setIsResettingPassword(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -223,6 +231,28 @@ export default function Home() {
     }
     setLoading(false);
   };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    if (isResettingPassword) {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) alert(error.message);
+      else {
+        alert('Heslo bylo úspěšně změněno! Nyní se můžete přihlásit.');
+        setIsResettingPassword(false);
+        window.location.hash = ''; 
+      }
+    } else {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) alert(error.message);
+      else alert('Odkaz pro obnovu hesla byl odeslán na Váš e-mail.');
+    }
+    setLoading(false);
+  };
+
   const updateProfile = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
@@ -579,6 +609,7 @@ export default function Home() {
       }
     }
   };
+
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
@@ -775,7 +806,8 @@ export default function Home() {
       </div>
     );
   };
-if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
+
+  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
@@ -929,15 +961,24 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
 
       {!user ? (
         <div className="no-print" style={styles.card}>
-          <h2 style={{textAlign: 'center', color: '#5d4037', marginBottom: '15px'}}>{isSignUp ? 'Nová registrace' : 'Přihlášení'}</h2>
-          <form onSubmit={handleAuth} style={styles.form}>
-            <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
-            <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT SE' : 'VSTOUPIT'}</button>
+          <h2 style={{textAlign: 'center', color: '#5d4037', marginBottom: '15px'}}>
+            {isResettingPassword ? 'Obnova hesla' : (isSignUp ? 'Nová registrace' : 'Přihlášení')}
+          </h2>
+          <form onSubmit={isResettingPassword ? handleResetPassword : handleAuth} style={styles.form}>
+            {!isResettingPassword && <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />}
+            <input type="password" placeholder={isResettingPassword ? "Zadejte nové heslo" : "Heslo"} value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
+            <button type="submit" style={styles.btnPrimary}>{isResettingPassword ? 'ULOŽIT NOVÉ HESLO' : (isSignUp ? 'ZAREGISTROVAT SE' : 'VSTOUPIT')}</button>
           </form>
-          <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
-            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
-          </button>
+          {!isResettingPassword && (
+            <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
+              {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
+            </button>
+          )}
+          {!isSignUp && (
+            <button onClick={() => setIsResettingPassword(!isResettingPassword)} style={{...styles.btnText, marginTop: '5px', fontSize: '0.8rem'}}>
+              {isResettingPassword ? 'Zpět na přihlášení' : 'Zapomněli jste heslo? Klikněte zde.'}
+            </button>
+          )}
         </div>
       ) : (
         <div style={styles.mainGrid}>
