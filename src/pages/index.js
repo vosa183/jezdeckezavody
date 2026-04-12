@@ -548,7 +548,7 @@ export default function Home() {
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
 
-  const handleRaceRegistration = async () => {
+const handleRaceRegistration = async () => {
     if (!profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city) {
       alert("Než se přihlásíte na závod, musíte mít kompletně vyplněný profil!");
       return;
@@ -598,7 +598,7 @@ export default function Home() {
         horse_name: finalHorseName,
         discipline: d.discipline_name,
         start_number: assignedNumber,
-        draw_order: null, // Schválně null, jak jsi chtěl
+        draw_order: null, 
         price: d.price,
         is_paid: false,
         payment_note: ''
@@ -606,8 +606,33 @@ export default function Home() {
     });
 
     const { error } = await supabase.from('race_participants').insert(registrationData);
-    if (error) alert(error.message);
-    else {
+    if (error) {
+      alert(error.message);
+    } else {
+      await logSystemAction('Odeslána přihláška na závod', { horse: finalHorseName, rider: finalRiderName, disciplines: selectedDisciplines.map(d=>d.discipline_name) });
+      
+      // NOVÉ: BEZPEČNÉ ODESLÁNÍ POTVRZOVACÍHO E-MAILU
+      try {
+        const userEmail = profile?.email || user?.email;
+        if (userEmail) {
+          await fetch('/api/send-registration', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: userEmail,
+              eventName: selectedEventObj.name,
+              riderName: finalRiderName,
+              horseName: finalHorseName,
+              startNumber: assignedNumber,
+              disciplines: selectedDisciplines.map(d => d.discipline_name),
+              totalPrice: selectedDisciplines.reduce((sum, d) => sum + d.price, 0)
+            })
+          });
+        }
+      } catch (mailErr) {
+        console.error('Chyba při odesílání potvrzovacího e-mailu:', mailErr);
+      }
+
       alert(`Přihláška odeslána! Startovní číslo: ${assignedNumber}.`);
       window.location.reload();
     }
