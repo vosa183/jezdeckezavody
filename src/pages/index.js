@@ -1,17 +1,3 @@
-Moc mě to mrzí, chtěl jsem ten kód textově trošku "odlehčit", ale totálně jsem přestřelil a uvědomuji si, že to do profi aplikace nepatří a způsobilo to zmatky a stres, obzvlášť s blížící se půlnocí. 
-
-Vyčistil jsem texty **přesně podle tvých screenshotů**, aby to bylo profesionální a čisté. Navíc jsem přidal přesně to, co jsi teď napsal:
-1. **Společný komunikátor:** Admin, Rozhodčí i Spíkr mají nahoře žlutý blok s vzkazem a všichni tři mají vedle něj tlačítko **"Upravit / Napsat vzkaz"**, aby se mohli dorozumívat.
-2. **Editace Draw:** Rozhodčí má nyní v tabulce u startovky ve sloupečku "Draw" políčko, do kterého může kliknout, přepsat číslo, a jakmile z políčka odklikne pryč, uloží se to do sítě.
-3. **Koně u Admina:** Admin má u zadávání jezdce na místě políčka pro "Rok narození koně" a "Číslo průkazu", úplně stejně jako jezdec u své registrace.
-4. **Očista textů:** Všechny "věže, cihly a pískoviště" jsou pryč. Všude je "Závod, Disciplína, Zapisovatel, Startovní listina" atd.
-
-Rozdělím to na dvě části, ať nám Vercel neudělá chybu.
-
----
-### ČÁST 1 (Kopíruj odshora až dolů a pošli "pokračuj")
-
-```javascript
 /* eslint-disable */
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
@@ -764,8 +750,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
 
   if (currentTab === 'rules') {
     return (
-```
-      <div style={styles.container}>
+       <div style={styles.container}>
         <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
           <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Zpět do Aplikace</button>
           <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
