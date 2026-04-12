@@ -7,6 +7,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+// BEZPEČNÉ ODESÍLÁNÍ (TOKENY JSOU SCHOVANÉ NA SERVERU)
 const sendTelegramMessage = async (text) => {
   try {
     await fetch('/api/telegram', {
@@ -122,7 +123,7 @@ export default function Home() {
   const [newStartNumTo, setNewStartNumTo] = useState('100'); 
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
-  const [newDiscOrder, setNewDiscOrder] = useState('0'); // NOVÉ: Pořadí
+  const [newDiscOrder, setNewDiscOrder] = useState('0');
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
   const [manualTgMessage, setManualTgMessage] = useState('');
 
@@ -169,10 +170,26 @@ export default function Home() {
     }, 5000); 
     return () => clearInterval(interval);
   }, [profile]);
-  event_date', { ascending: false });
+
+  const logSystemAction = async (actionDesc, detailData = {}) => {
+    if (!user) return;
+    await supabase.from('system_logs').insert([{ user_id: user.id, action: actionDesc, details: detailData }]);
+  };
+
+  async function checkUser() {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        setUser(authUser);
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
+        setProfile(prof);
+        
+        const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', authUser.id);
+        setMyHorses(horses || []);
+
+        const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
         setEvents(evts || []);
 
-        // TADY JE NOVINKA: Řazení ceníku podle nového sloupce order_index
         const { data: prices } = await supabase.from('pricing').select('*').order('order_index', { ascending: true });
         setPricing(prices || []);
 
@@ -200,7 +217,6 @@ export default function Home() {
       setLoading(false);
     }
   }
-
   const handleSignOut = async () => {
     await logSystemAction('Odhlášení uživatele');
     await supabase.auth.signOut();
@@ -375,7 +391,7 @@ export default function Home() {
       discipline_name: newDiscName, 
       price: parseInt(newDiscPrice), 
       pattern_url: patternUrl,
-      order_index: parseInt(newDiscOrder) || 0 // NOVÉ: Pořadí
+      order_index: parseInt(newDiscOrder) || 0
     }]);
     if (error) alert(error.message);
     else { 
@@ -389,7 +405,7 @@ export default function Home() {
     setEditDiscPrice(p.price);
     setEditPatternFile(null);
     setEditManeuvers(p.maneuver_names || '');
-    setEditDiscOrder(p.order_index || '0'); // NOVÉ: Pořadí do editace
+    setEditDiscOrder(p.order_index || '0');
   };
 
   const handleDeletePricing = async (id, discName) => {
@@ -404,7 +420,7 @@ export default function Home() {
     await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
     await logSystemAction('Úprava platby', { rider: riderName, note });
   };
-const sendManualTgMessage = async () => {
+  const sendManualTgMessage = async () => {
     if(!manualTgMessage) return;
     await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
     alert('Odesláno na Telegram!');
@@ -417,7 +433,6 @@ const sendManualTgMessage = async () => {
     const eventObj = events.find(e => e.id === eventId);
     let tgMsg = `🏆 <b>ZÁVODY UKONČENY - CELKOVÉ VÝSLEDKY</b> 🏆\n\n<b>${eventObj.name}</b>\n\n`;
 
-    // Seřazení disciplín podle nového indexu z ceníku
     const disciplinesInEvent = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
     const sortedDisciplines = disciplinesInEvent.sort((a, b) => {
       const pA = pricing.find(p => p.discipline_name === a)?.order_index || 0;
@@ -434,7 +449,7 @@ const sendManualTgMessage = async () => {
         })
         .filter(r => r.totalScore !== -999 || r.isDq)
         .sort((a, b) => {
-           if (a.isDq) return 1; // DQ na konec
+           if (a.isDq) return 1;
            if (b.isDq) return -1;
            return b.totalScore - a.totalScore;
         }); 
@@ -516,7 +531,6 @@ const sendManualTgMessage = async () => {
       assignedNumber = available[Math.floor(Math.random() * available.length)];
     }
 
-    // ZDE JSOU PŘIDÁNA TVÁ 3 NOVÁ POLE DO DATABÁZE
     const registrationData = selectedDisciplines.map(d => {
       return {
         user_id: user.id,
@@ -564,7 +578,8 @@ const sendManualTgMessage = async () => {
       }
     }
   };
-const handleJudgeDisciplineChange = async (eventId, discName) => {
+
+  const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     const currDisc = pricing.find(p => p.discipline_name === discName);
     setJudgeManeuversText(currDisc?.maneuver_names || '');
@@ -616,7 +631,7 @@ const handleJudgeDisciplineChange = async (eventId, discName) => {
   };
 
   const calculateTotalScore = () => {
-    if (isDq) return 0; // Pokud je DQ, skóre je technicky 0
+    if (isDq) return 0;
     const baseScore = 70;
     const maneuversTotal = maneuverScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
     const penaltiesTotal = penaltyScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
@@ -643,7 +658,7 @@ const handleJudgeDisciplineChange = async (eventId, discName) => {
       signature_hash: hash,
       score_data: scoreData,
       total_score: total,
-      is_dq: isDq // Uložení hodnoty DQ
+      is_dq: isDq 
     });
 
     if (error) {
@@ -660,7 +675,6 @@ const handleJudgeDisciplineChange = async (eventId, discName) => {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
     
-    // Řazení disciplín podle order_index
     const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
     const sortedDisciplines = disciplines.sort((a, b) => {
       const pA = pricing.find(p => p.discipline_name === a)?.order_index || 0;
@@ -716,7 +730,8 @@ const handleJudgeDisciplineChange = async (eventId, discName) => {
       </div>
     );
   };
-const renderPrintableScoresheets = (eventId) => {
+
+  const renderPrintableScoresheets = (eventId) => {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
 
@@ -849,8 +864,7 @@ const renderPrintableScoresheets = (eventId) => {
       </div>
     );
   };
-
-  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
+if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))].sort((a,b) => {
@@ -864,8 +878,6 @@ const renderPrintableScoresheets = (eventId) => {
   const speakerEventId = lockedEvent?.id;
   const speakerDiscipline = lockedEvent?.active_discipline;
   const speakerStartList = speakerEventId && speakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerDiscipline).sort((a, b) => a.start_number - b.start_number) : [];
-
-  const currentRules = getRulesForDiscipline(judgeDiscipline);
 
   if (currentTab === 'rules' && user) {
     return (
@@ -950,19 +962,6 @@ const renderPrintableScoresheets = (eventId) => {
               {isResettingPassword ? 'Zpět na přihlášení' : 'Zapomněli jste heslo? Klikněte zde.'}
             </button>
           )}
-          
-          <div style={{marginTop: '40px', borderTop: '1px solid #ddd', paddingTop: '20px'}}>
-             <h3 style={{textAlign: 'center', color: '#5d4037'}}>Dostupné disciplíny</h3>
-             {pricing.length === 0 ? <p style={{textAlign: 'center'}}>Ceník se připravuje...</p> : (
-               <div style={{display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center'}}>
-                 {pricing.map(p => (
-                   <span key={p.id} style={{background: '#f4ece4', padding: '8px 15px', borderRadius: '20px', fontSize: '0.9rem', color: '#5d4037', border: '1px solid #d7ccc8'}}>
-                     {p.discipline_name}
-                   </span>
-                 ))}
-               </div>
-             )}
-          </div>
         </div>
       ) : (
         <div className="main-grid-print-fix" style={styles.mainGrid}>
@@ -983,15 +982,13 @@ const renderPrintableScoresheets = (eventId) => {
                 <p><strong>{profile?.full_name || 'Nevyplněné jméno'}</strong></p>
                 <p>E-mail: {profile?.email || user?.email}</p>
                 <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
-                {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city ) && (
-                  <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
-                )}
                 <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
                 <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
               </div>
             )}
           </div>
-<div className="print-area" style={styles.card}>
+          
+          <div className="print-area" style={styles.card}>
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
                 <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
@@ -1141,7 +1138,7 @@ const renderPrintableScoresheets = (eventId) => {
                   <div className="no-print" style={{background: '#e3f2fd', padding: '20px', borderRadius: '8px', border: '2px solid #0288d1', textAlign: 'center'}}>
                     <h3 style={{color: '#0288d1', marginTop: 0}}>📢 Manuální odeslání zprávy do kanálu</h3>
                     <input type="text" placeholder="Napište vzkaz pro jezdce..." value={manualTgMessage} onChange={e => setManualTgMessage(e.target.value)} style={{...styles.input, fontSize: '1.1rem', padding: '15px'}} />
-                    <button onClick={sendManualTgMessage} style={{...styles.btnSave, background: '#0288d1', padding: '15px 30px', fontSize: '1.1rem', marginTop: '10px'}}>Odeslat Zprávu</button>
+                    <button onClick={sendManualTgMessage} style={{...styles.btnSave, background: '#0288d1', padding: '15px 30px', fontSize: '1.1rem', marginTop: '10px'}}>Odeslat Zprávu Nyní</button>
                   </div>
                 )}
 
@@ -1239,7 +1236,7 @@ const renderPrintableScoresheets = (eventId) => {
                         }));
                         
                         const { error } = await supabase.from('race_participants').insert(regData);
-                        if(error) alert(error.message); else { alert("Hotovo!"); setOfflineRiderName(''); setOfflineHorseName(''); setSelectedDisciplines([]); window.location.reload(); }
+                        if(error) alert(error.message); else { alert("Hotovo!"); setOfflineRiderName(''); setOfflineHorseName(''); setOfflineRiderBirthDate(''); setOfflineHorseBirthDate(''); setOfflineHorseIdNumber(''); setSelectedDisciplines([]); window.location.reload(); }
                       }} style={{...styles.btnSave, background: '#0288d1', marginTop: '15px'}}>Registrovat a Zaplatit</button>
                     </div>
 
@@ -1397,8 +1394,8 @@ const renderPrintableScoresheets = (eventId) => {
                             </thead>
                             <tbody>
                               {judgeStartList.length > 0 ? judgeStartList.map(r => {
-                                const isScored = scoresheets.some(s => s.participant_id === r.id);
                                 const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                                const isScored = !!scoreObj;
                                 return (
                                   <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
                                     <td style={{padding: '10px', fontWeight: 'bold', fontSize: '1.2rem'}}>{r.start_number}</td>
@@ -1567,7 +1564,7 @@ const renderPrintableScoresheets = (eventId) => {
                                       {scoreObj ? (isDq ? 'DQ' : scoreObj.total_score) : 'Čeká se'}
                                     </td>
                                     <td style={{padding: '8px'}}>
-                                      {!eventObj?.is_locked ? <button onClick={() => handleCancelRegistration(r.id)} style={{color: '#e57373', fontWeight: 'bold'}}>Zrušit</button> : <span style={{color: '#888'}}>Uzamčeno</span>}
+                                      {!eventObj?.is_locked ? <button onClick={() => handleCancelRegistration(r.id)} style={{color: '#e57373', fontWeight: 'bold', background: 'none', border: 'none', cursor: 'pointer'}}>Zrušit</button> : <span style={{color: '#888'}}>Uzamčeno</span>}
                                     </td>
                                   </tr>
                                 );
