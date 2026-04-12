@@ -88,7 +88,7 @@ export default function Home() {
   const [scoresheets, setScoresheets] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]); 
   
-  // REGISTRACE HRÁČE (PŘIDÁNA NOVÁ POLE)
+  // REGISTRACE HRÁČE
   const [selectedEvent, setSelectedEvent] = useState('');
   const [selectedHorse, setSelectedHorse] = useState('');
   const [newHorseName, setNewHorseName] = useState(''); 
@@ -107,7 +107,7 @@ export default function Home() {
   const [offlineHorseBirthDate, setOfflineHorseBirthDate] = useState('');
   const [offlineHorseIdNumber, setOfflineHorseIdNumber] = useState('');
 
-  // STAVY PRO INLINE EDITACI CENÍKU (PŘIDÁNO ŘAZENÍ)
+  // STAVY PRO INLINE EDITACI CENÍKU
   const [editingPricingId, setEditingPricingId] = useState(null);
   const [editDiscPrice, setEditDiscPrice] = useState('');
   const [editManeuvers, setEditManeuvers] = useState(''); 
@@ -116,7 +116,7 @@ export default function Home() {
   const [editMode, setEditMode] = useState(false);
   const [playerTab, setPlayerTab] = useState('main'); 
 
-  // VYTVÁŘENÍ ZÁVODŮ A CENÍKU
+  // VYTVÁŘENÍ ZÁVODŮ
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newStartNumFrom, setNewStartNumFrom] = useState('1'); 
@@ -130,7 +130,7 @@ export default function Home() {
   const [newAccountEmail, setNewAccountEmail] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('judge');
 
-  // ZAPISOVATEL (SCRIBE) + PŘIDÁNO DQ
+  // ZAPISOVATEL (SCRIBE)
   const [judgeEvent, setJudgeEvent] = useState('');
   const [judgeDiscipline, setJudgeDiscipline] = useState('');
   const [evaluatingParticipant, setEvaluatingParticipant] = useState(null);
@@ -154,7 +154,6 @@ export default function Home() {
       }
     }
   }, []);
-
   useEffect(() => {
     const interval = setInterval(async () => {
       const { data: evts } = await supabase.from('events').select('*').order('event_date', { ascending: false });
@@ -217,6 +216,7 @@ export default function Home() {
       setLoading(false);
     }
   }
+
   const handleSignOut = async () => {
     await logSystemAction('Odhlášení uživatele');
     await supabase.auth.signOut();
@@ -330,6 +330,18 @@ export default function Home() {
     }
   };
 
+  const handleUpdateInternalMessage = async (eventId, currentMessage) => {
+    const msg = prompt("Zadejte TAJNOU zprávu pro štáb (vidí ji Admin, Rozhodčí, Spíkr):", currentMessage || "");
+    if (msg !== null) {
+      const { error } = await supabase.from('events').update({ internal_message: msg }).eq('id', eventId);
+      if (error) alert(error.message);
+      else {
+        await logSystemAction('Změna tajné zprávy pro štáb', { msg });
+        checkUser(); 
+      }
+    }
+  };
+
   const handleCreateEvent = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('events').insert([{ 
@@ -348,7 +360,6 @@ export default function Home() {
       window.location.reload(); 
     }
   };
-
   const toggleEventLock = async (id, currentLocked, eventName) => {
     if (confirm(currentLocked ? 'Odemknout přihlášky?' : 'Uzamknout přihlášky?')) {
       const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
@@ -377,20 +388,9 @@ export default function Home() {
 
   const handleCreatePricing = async (e) => {
     e.preventDefault();
-    let patternUrl = null;
-    if (patternFile) {
-      const fileExt = patternFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('patterns').upload(fileName, patternFile);
-      if (uploadError) { alert('Chyba nahrávání: ' + uploadError.message); return; }
-      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-      patternUrl = urlData.publicUrl;
-    }
-
     const { error } = await supabase.from('pricing').insert([{ 
       discipline_name: newDiscName, 
       price: parseInt(newDiscPrice), 
-      pattern_url: patternUrl,
       order_index: parseInt(newDiscOrder) || 0
     }]);
     if (error) alert(error.message);
@@ -403,7 +403,6 @@ export default function Home() {
   const startEditingPricing = (p) => {
     setEditingPricingId(p.id);
     setEditDiscPrice(p.price);
-    setEditPatternFile(null);
     setEditManeuvers(p.maneuver_names || '');
     setEditDiscOrder(p.order_index || '0');
   };
@@ -420,6 +419,7 @@ export default function Home() {
     await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
     await logSystemAction('Úprava platby', { rider: riderName, note });
   };
+
   const sendManualTgMessage = async () => {
     if(!manualTgMessage) return;
     await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
@@ -578,7 +578,6 @@ export default function Home() {
       }
     }
   };
-
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
     const currDisc = pricing.find(p => p.discipline_name === discName);
@@ -631,7 +630,7 @@ export default function Home() {
   };
 
   const calculateTotalScore = () => {
-    if (isDq) return 0;
+    if (isDq) return 0; // Pokud je DQ, skóre je technicky 0
     const baseScore = 70;
     const maneuversTotal = maneuverScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
     const penaltiesTotal = penaltyScores.reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
@@ -645,6 +644,7 @@ export default function Home() {
     const timestamp = new Date().toISOString();
     const jName = actualJudgeName || 'Neznámý rozhodčí';
     
+    // Podpis obsahuje i informaci o DQ
     const dataToSign = `${evaluatingParticipant.id}-${jName}-${timestamp}-${total}-${isDq}-${JSON.stringify(scoreData)}`;
     const hash = await generateHash(dataToSign);
 
@@ -694,7 +694,7 @@ export default function Home() {
               <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '1.2rem'}}>
                 <thead>
                   <tr style={{borderBottom: '2px solid black', textAlign: 'left'}}>
-                    <th style={{padding: '8px', width: '15%'}}>DRAW</th>
+                    <th style={{padding: '8px', width: '15%'}}>DRAW (Pořadí)</th>
                     <th style={{padding: '8px', width: '15%'}}>Záda (EXH)</th>
                     <th style={{padding: '8px', width: '35%'}}>Jezdec</th>
                     <th style={{padding: '8px'}}>Kůň</th>
@@ -730,8 +730,7 @@ export default function Home() {
       </div>
     );
   };
-
-  const renderPrintableScoresheets = (eventId) => {
+const renderPrintableScoresheets = (eventId) => {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
 
@@ -748,7 +747,10 @@ export default function Home() {
           <p className="no-print" style={{color: '#666'}}>Zatím nejsou k dispozici žádní jezdci.</p>
         ) : (
           sortedDisciplines.map(discipline => {
-            const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => a.start_number - b.start_number);
+            const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => {
+               if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
+               return a.start_number - b.start_number;
+            });
             if(ridersInDiscipline.length === 0) return null;
 
             const scoredRiders = ridersInDiscipline.filter(r => scoresheets.some(s => s.participant_id === r.id));
@@ -766,7 +768,7 @@ export default function Home() {
                 <table className="wrc-scoresheet" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.95rem' }}>
                   <thead>
                     <tr>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>Umístění (DRAW)</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>DRAW</th>
                       <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>Záda (EXH#)</th>
                       <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'left', minWidth: '150px' }}>JEZDEC / KŮŇ</th>
                       <th rowSpan="2" style={{ border: '2px solid black', padding: '4px', width: '40px', fontSize: '0.7rem' }}></th>
@@ -819,7 +821,7 @@ export default function Home() {
                                const val = scoreObj && scoreObj.score_data ? parseFloat(scoreObj.score_data.maneuvers[i]) : 0;
                                return (
                                 <td key={`s-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', height: '25px' }}>
-                                  {scoreObj && val !== 0 ? (val > 0 ? `+${val}` : val) : (scoreObj ? '0' : '')}
+                                  {scoreObj && val !== 0 ? (val > 0 ? `+${val}` : val) : (scoreObj && !isDqScore ? '0' : '')}
                                 </td>
                                );
                             })}
@@ -864,7 +866,8 @@ export default function Home() {
       </div>
     );
   };
-if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
+
+  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))].sort((a,b) => {
@@ -872,12 +875,20 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
       const pB = pricing.find(p => p.discipline_name === b)?.order_index || 0;
       return pA - pB;
   }) : [];
-  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => a.start_number - b.start_number) : [];
+  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => {
+      if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
+      return a.start_number - b.start_number;
+  }) : [];
 
   const lockedEvent = events.find(ev => ev.is_locked);
   const speakerEventId = lockedEvent?.id;
   const speakerDiscipline = lockedEvent?.active_discipline;
-  const speakerStartList = speakerEventId && speakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerDiscipline).sort((a, b) => a.start_number - b.start_number) : [];
+  const speakerStartList = speakerEventId && speakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerDiscipline).sort((a, b) => {
+      if (a.draw_order && b.draw_order) return a.draw_order - b.draw_order;
+      return a.start_number - b.start_number;
+  }) : [];
+
+  const currentRules = getRulesForDiscipline(judgeDiscipline);
 
   if (currentTab === 'rules' && user) {
     return (
@@ -987,8 +998,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
               </div>
             )}
           </div>
-          
-          <div className="print-area" style={styles.card}>
+<div className="print-area" style={styles.card}>
             {(effectiveRole === 'admin' || effectiveRole === 'superadmin') && (
               <div>
                 <div className="no-print" style={{marginBottom: '20px', borderBottom: '2px solid #5d4037', paddingBottom: '10px'}}>
@@ -1079,16 +1089,10 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                               <tr key={p.id} style={{borderBottom: '1px solid #eee', background: editingPricingId === p.id ? '#fff9c4' : 'transparent'}}>
                                 {editingPricingId === p.id ? (
                                   <>
-                                    <td style={{padding: '10px'}}>
-                                      <input type="number" value={editDiscOrder} onChange={e => setEditDiscOrder(e.target.value)} style={{...styles.inputSmall, width: '50px'}} />
-                                    </td>
+                                    <td style={{padding: '10px'}}><input type="number" value={editDiscOrder} onChange={e => setEditDiscOrder(e.target.value)} style={{...styles.inputSmall, width: '50px'}} /></td>
                                     <td style={{padding: '10px'}}>{p.discipline_name}</td>
-                                    <td style={{padding: '10px'}}>
-                                      <input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '60px'}} />
-                                    </td>
-                                    <td style={{padding: '10px'}}>
-                                      <input type="text" placeholder="Krok, Klus..." value={editManeuvers} onChange={e => setEditManeuvers(e.target.value)} style={styles.inputSmall} />
-                                    </td>
+                                    <td style={{padding: '10px'}}><input type="number" value={editDiscPrice} onChange={e => setEditDiscPrice(e.target.value)} style={{...styles.inputSmall, width: '60px'}} /></td>
+                                    <td style={{padding: '10px'}}><input type="text" placeholder="Krok, Klus..." value={editManeuvers} onChange={e => setEditManeuvers(e.target.value)} style={styles.inputSmall} /></td>
                                     <td style={{padding: '10px', textAlign: 'center'}}>
                                       <button onClick={async () => {
                                         await supabase.from('pricing').update({ price: parseInt(editDiscPrice), maneuver_names: editManeuvers, order_index: parseInt(editDiscOrder) }).eq('id', p.id);
@@ -1162,12 +1166,19 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                       </div>
                     </div>
 
-                    <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
-                      <div>
+                    {/* VYSÍLAČKY (ADMIN POHLED) */}
+                    <div className="no-print" style={{marginBottom: '20px', display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
+                      <div style={{flex: 1, background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300'}}>
                         <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz pro Spíkra:</strong>
-                        <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                        <span style={{fontSize: '1.2rem', fontWeight: 'bold', display: 'block', minHeight: '30px'}}>{events.find(e => e.id === adminSelectedEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                        <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', marginTop: '10px'}}>Upravit vzkaz</button>
                       </div>
-                      <button onClick={() => handleUpdateSpeakerMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', margin: 0}}>Upravit vzkaz</button>
+                      
+                      <div style={{flex: 1, background: '#f3e5f5', padding: '15px', borderRadius: '8px', border: '2px solid #9c27b0'}}>
+                        <strong style={{color: '#6a1b9a', display: 'block', marginBottom: '5px'}}>🕵️‍♀️ Tajná zpráva štábu (Admin/Spíkr/Rozhodčí):</strong>
+                        <span style={{fontSize: '1.2rem', fontWeight: 'bold', display: 'block', minHeight: '30px'}}>{events.find(e => e.id === adminSelectedEvent)?.internal_message || 'Žádná tajná zpráva'}</span>
+                        <button onClick={() => handleUpdateInternalMessage(adminSelectedEvent, events.find(e => e.id === adminSelectedEvent)?.internal_message)} style={{...styles.btnSave, background: '#9c27b0', color: '#fff', marginTop: '10px'}}>Upravit tajnou linku</button>
+                      </div>
                     </div>
 
                     <div className="no-print" style={{marginBottom: '20px', background: '#fff9c4', padding: '20px', borderRadius: '8px', border: '2px solid #fbc02d', textAlign: 'center'}}>
@@ -1177,7 +1188,6 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
 
                     <div className="no-print" style={styles.adminSection}>
                       <h4 style={{margin: '0 0 10px 0', color: '#0288d1'}}>Offline Registrace na místě</h4>
-                      
                       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', background: '#f9f9f9', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>
                         <div>
                           <strong style={{fontSize: '0.85rem', color: '#555'}}>Údaje jezdce:</strong>
@@ -1195,7 +1205,6 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                           <input type="text" placeholder="ID koně (z průkazu)" value={offlineHorseIdNumber} onChange={e=>setOfflineHorseIdNumber(e.target.value)} style={styles.inputSmall}/>
                         </div>
                       </div>
-
                       <div style={{marginTop: '15px'}}>
                          <strong style={{fontSize: '0.85rem'}}>Vyberte disciplíny:</strong>
                          <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '5px'}}>
@@ -1272,19 +1281,24 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                 </div>
 
                 {judgeEvent && !evaluatingParticipant && (
-                  <div className="no-print" style={{marginBottom: '20px', background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div>
+                  <div className="no-print" style={{marginBottom: '20px', display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
+                    <div style={{flex: 1, background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '2px solid #ffb300'}}>
                       <strong style={{color: '#e65100', display: 'block', marginBottom: '5px'}}>🔇 Interní vzkaz pro Spíkra:</strong>
-                      <span style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                      <span style={{fontSize: '1.2rem', fontWeight: 'bold', display: 'block', minHeight: '30px'}}>{events.find(e => e.id === judgeEvent)?.speaker_message || 'Žádná zpráva'}</span>
+                      <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000', marginTop: '10px'}}>Upravit vzkaz</button>
                     </div>
-                    <button onClick={() => handleUpdateSpeakerMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.speaker_message)} style={{...styles.btnSave, background: '#ffb300', color: '#000'}}>Upravit</button>
+                    
+                    <div style={{flex: 1, background: '#f3e5f5', padding: '15px', borderRadius: '8px', border: '2px solid #9c27b0'}}>
+                      <strong style={{color: '#6a1b9a', display: 'block', marginBottom: '5px'}}>🕵️‍♀️ Tajná zpráva štábu:</strong>
+                      <span style={{fontSize: '1.2rem', fontWeight: 'bold', display: 'block', minHeight: '30px'}}>{events.find(e => e.id === judgeEvent)?.internal_message || 'Žádná tajná zpráva'}</span>
+                      <button onClick={() => handleUpdateInternalMessage(judgeEvent, events.find(e => e.id === judgeEvent)?.internal_message)} style={{...styles.btnSave, background: '#9c27b0', color: '#fff', marginTop: '10px'}}>Upravit tajnou linku</button>
+                    </div>
                   </div>
                 )}
                 
                 <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'}>
                   {evaluatingParticipant ? (
                     <div style={{background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #0277bd', display: 'flex', gap: '20px', flexWrap: 'wrap'}}>
-                      
                       <div style={{flex: 2, minWidth: '300px'}}>
                         <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0277bd', paddingBottom: '10px', marginBottom: '15px'}}>
                           <h2 style={{marginTop: 0, color: '#0277bd'}}>{evaluatingParticipant.discipline}</h2>
@@ -1386,33 +1400,50 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                             <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
                             <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0}}>📣 Oznámit konec disciplíny</button>
                           </div>
-                          <table style={{width: '100%', borderCollapse: 'collapse'}}>
-                            <thead>
-                              <tr style={{background: '#e1f5fe', textAlign: 'left'}}>
-                                <th style={{padding: '10px'}}>Záda</th><th style={{padding: '10px'}}>Jezdec</th><th style={{padding: '10px'}}>Kůň</th><th style={{padding: '10px', textAlign: 'center'}}>Stav</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {judgeStartList.length > 0 ? judgeStartList.map(r => {
-                                const scoreObj = scoresheets.find(s => s.participant_id === r.id);
-                                const isScored = !!scoreObj;
-                                return (
-                                  <tr key={r.id} style={{borderBottom: '1px solid #eee'}}>
-                                    <td style={{padding: '10px', fontWeight: 'bold', fontSize: '1.2rem'}}>{r.start_number}</td>
-                                    <td style={{padding: '10px'}}>{r.rider_name}</td>
-                                    <td style={{padding: '10px'}}>{r.horse_name}</td>
-                                    <td style={{padding: '10px', textAlign: 'center'}}>
-                                      {isScored ? (
-                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnOutline, padding: '5px 10px', border: '1px solid #4caf50', color: scoreObj.is_dq ? 'red' : '#4caf50'}}>Opravit ({scoreObj.is_dq ? 'DQ' : scoreObj.total_score})</button>
-                                      ) : (
-                                        <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd'}}>Zapsat</button>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              }) : <tr><td colSpan="4" style={{padding: '15px', textAlign: 'center'}}>Žádní jezdci.</td></tr>}
-                            </tbody>
-                          </table>
+                          
+                          {/* ROZHODČÍ VIDÍ DRAW A MŮŽE HO EDITOVAT */}
+                          <div style={{overflowX: 'auto'}}>
+                            <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                              <thead>
+                                <tr style={{background: '#e1f5fe', textAlign: 'left'}}>
+                                  <th style={{padding: '10px', width: '80px'}}>DRAW</th>
+                                  <th style={{padding: '10px', width: '80px'}}>Záda</th>
+                                  <th style={{padding: '10px'}}>Jezdec</th>
+                                  <th style={{padding: '10px'}}>Kůň</th>
+                                  <th style={{padding: '10px', textAlign: 'center'}}>Stav</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {judgeStartList.length > 0 ? judgeStartList.map(r => {
+                                  const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+                                  const isScored = !!scoreObj;
+                                  return (
+                                    <tr key={r.id} style={{borderBottom: '1px solid #eee', background: isScored ? (scoreObj.is_dq ? '#ffebee' : '#f1f8e9') : 'transparent'}}>
+                                      <td style={{padding: '10px'}}>
+                                        <input 
+                                          type="number" 
+                                          defaultValue={r.draw_order || ''} 
+                                          onBlur={(e) => updateParticipantDraw(r.id, e.target.value)}
+                                          style={{...styles.inputSmall, width: '60px', margin: 0, textAlign: 'center'}}
+                                          placeholder="-"
+                                        />
+                                      </td>
+                                      <td style={{padding: '10px', fontWeight: 'bold', fontSize: '1.2rem'}}>{r.start_number}</td>
+                                      <td style={{padding: '10px'}}>{r.rider_name}</td>
+                                      <td style={{padding: '10px'}}>{r.horse_name}</td>
+                                      <td style={{padding: '10px', textAlign: 'center'}}>
+                                        {isScored ? (
+                                          <button onClick={() => openScoresheet(r)} style={{...styles.btnOutline, padding: '5px 10px', border: '1px solid #4caf50', color: scoreObj.is_dq ? 'red' : '#4caf50'}}>Opravit ({scoreObj.is_dq ? 'DQ' : scoreObj.total_score})</button>
+                                        ) : (
+                                          <button onClick={() => openScoresheet(r)} style={{...styles.btnSave, background: '#0277bd'}}>Zapsat</button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                }) : <tr><td colSpan="5" style={{padding: '15px', textAlign: 'center'}}>Žádní jezdci.</td></tr>}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1424,6 +1455,25 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
             {effectiveRole === 'speaker' && (
               <div className="no-print">
                 <h3 style={{marginTop: 0, color: '#5d4037', borderBottom: '2px solid #8d6e63', paddingBottom: '10px'}}>Pohled Hlasatele</h3>
+                
+                {speakerEventId && (
+                  <div style={{marginBottom: '20px', display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
+                    {lockedEvent?.speaker_message && (
+                      <div style={{flex: 1, background: '#ffe0b2', border: '4px solid #e65100', padding: '20px', borderRadius: '12px', textAlign: 'center'}}>
+                        <h3 style={{margin: '0 0 10px 0', color: '#e65100', textTransform: 'uppercase'}}>🚨 Zpráva od pořadatele:</h3>
+                        <p style={{fontSize: '1.8rem', fontWeight: 'bold', margin: 0, color: '#e65100'}}>{lockedEvent.speaker_message}</p>
+                      </div>
+                    )}
+                    
+                    {lockedEvent?.internal_message && (
+                      <div style={{flex: 1, background: '#f3e5f5', border: '4px solid #9c27b0', padding: '20px', borderRadius: '12px', textAlign: 'center'}}>
+                        <h3 style={{margin: '0 0 10px 0', color: '#6a1b9a', textTransform: 'uppercase'}}>🕵️‍♀️ Tajná zpráva štábu:</h3>
+                        <p style={{fontSize: '1.5rem', fontWeight: 'bold', margin: 0, color: '#6a1b9a'}}>{lockedEvent.internal_message}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {speakerEventId && speakerDiscipline ? (
                   <div>
                     <h2 style={{fontSize: '2rem', textAlign: 'center', color: '#5d4037'}}>ARÉNA: {speakerDiscipline}</h2>
@@ -1452,7 +1502,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                       </tbody>
                     </table>
                   </div>
-                ) : <p style={{textAlign: 'center', padding: '20px'}}>Čeká se na rozhodčího...</p>}
+                ) : <p style={{textAlign: 'center', padding: '20px', fontSize: '1.2rem'}}>Čeká se na rozhodčího...</p>}
               </div>
             )}
 
