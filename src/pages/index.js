@@ -1651,8 +1651,12 @@ const handleRaceRegistration = async () => {
                       Celkem k platbě: {selectedDisciplines.reduce((sum, d) => sum + d.price, 0)} Kč
                     </div>
 
-                    <button onClick={handleRaceRegistration} style={styles.btnSecondary}>
-                      ODESLAT PŘIHLÁŠKU
+                    <button 
+                     onClick={handleRaceRegistration} 
+                     disabled={loading} 
+                     style={{ ...styles.btnSecondary, opacity: loading ? 0.7 : 1, cursor: loading ? 'wait' : 'pointer' }}
+                     >
+                    {loading ? 'ODESÍLÁM PŘIHLÁŠKU (ČEKEJTE)...' : 'ODESLAT PŘIHLÁŠKU'}
                     </button>
 
                     {allRegistrations.filter(r => r.user_id === user?.id).length > 0 && (
