@@ -171,6 +171,7 @@ export default function Home() {
   
   const [editingEventPropsId, setEditingEventPropsId] = useState(null);
   const [editEventPropsText, setEditEventPropsText] = useState('');
+  const [editEventPatternsUrl, setEditEventPatternsUrl] = useState(''); // NOVÉ POLÍČKO PRO ODKAZ NA ÚLOHY
   const [rulesSelectedEvent, setRulesSelectedEvent] = useState('');
 
   const [newAccountEmail, setNewAccountEmail] = useState('');
@@ -196,15 +197,14 @@ export default function Home() {
   const [printMode, setPrintMode] = useState(''); 
   const lastInternalMsgRef = useRef('');
 
-  // FILTRACE CENÍKU PODLE VĚKU
+  // FILTRACE CENÍKU PODLE VĚKU A ABECEDNÍ ŘAZENÍ (TADY JE TO OPRAVENÉ)
   const filteredPricing = pricing.filter(p => {
     if (riderAgeCategory === '18+') {
       const n = p.discipline_name.toLowerCase();
       return !n.includes('mládež') && !n.includes('děti') && !n.includes('rookies');
     }
     return true; 
-  });
-
+  }).sort((a, b) => a.discipline_name.localeCompare(b.discipline_name, 'cs'));
   useEffect(() => {
     checkUser();
   }, []);
@@ -216,6 +216,7 @@ export default function Home() {
         setEvents(evts);
         const currentRole = profile?.role || simulatedRole;
         if (['admin', 'superadmin', 'judge', 'speaker'].includes(currentRole)) {
+          // Zkusíme najít vybraný, uzamčený nebo aspoň nejnovější závod pro vysílačku
           const activeEv = evts.find(e => e.id === adminSelectedEvent || e.id === judgeEvent) || evts.find(e => e.is_locked) || evts[0];
           if (activeEv && activeEv.internal_message && activeEv.internal_message !== lastInternalMsgRef.current) {
             if (lastInternalMsgRef.current !== '') playAlert(); 
@@ -403,15 +404,30 @@ export default function Home() {
     }, 500); 
   };
 
+  // GLOBÁLNÍ VYSÍLAČKA - OPRAVA CHYBY
   const handleUpdateInternalMessage = async (eventId, currentMessage) => {
-    const msg = prompt("Zadejte TAJNOU zprávu pro štáb (vidí ji Admin, Rozhodčí, Spíkr). Smazáním textu zprávu zrušíte:", currentMessage || "");
+    let targetEventId = eventId;
+    let targetMessage = currentMessage;
+
+    // Pokud nemáme vybraný žádný konkrétní závod, najdeme uzamčený nebo aspoň ten nejnovější
+    if (!targetEventId) {
+      const fallbackEvent = events.find(e => e.is_locked) || events[0];
+      if (fallbackEvent) {
+        targetEventId = fallbackEvent.id;
+        targetMessage = fallbackEvent.internal_message;
+      } else {
+        alert("⚠️ V systému zatím není žádný závod, ke kterému by se zpráva dala přiřadit.");
+        return;
+      }
+    }
+
+    const msg = prompt("Zadejte TAJNOU zprávu pro štáb (vidí ji Admin, Rozhodčí, Spíkr). Smazáním textu zprávu zrušíte:", targetMessage || "");
     if (msg !== null) {
-      const { error } = await supabase.from('events').update({ internal_message: msg }).eq('id', eventId);
+      const { error } = await supabase.from('events').update({ internal_message: msg }).eq('id', targetEventId);
       if (error) alert(error.message);
       else checkUser(); 
     }
   };
-
   const handleCreateEvent = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('events').insert([{ 
@@ -470,16 +486,27 @@ export default function Home() {
   const startEditingEventProps = (ev) => {
     setEditingEventPropsId(ev.id);
     setEditEventPropsText(ev.propositions || '');
+    setEditEventPatternsUrl(ev.patterns_url || '');
   };
 
   const saveEventProps = async (id) => {
-    const { error } = await supabase.from('events').update({ propositions: editEventPropsText }).eq('id', id);
-    if (error) alert(error.message);
-    else {
-      alert('Propozice uloženy!');
-      setEditingEventPropsId(null);
-      checkUser();
+    const { error } = await supabase.from('events').update({ 
+       propositions: editEventPropsText,
+       patterns_url: editEventPatternsUrl 
+    }).eq('id', id);
+    
+    if (error) {
+       if (error.message.includes('patterns_url')) {
+          alert('Upozornění: Vaše databáze zatím nepodporuje ukládání odkazu na úlohy (chybí sloupec patterns_url). Ukládám jen propozice.');
+          await supabase.from('events').update({ propositions: editEventPropsText }).eq('id', id);
+       } else {
+          return alert(error.message);
+       }
     }
+    
+    alert('Uloženo!');
+    setEditingEventPropsId(null);
+    checkUser();
   };
 
   const handleCreatePricing = async (e) => {
@@ -627,7 +654,6 @@ export default function Home() {
     await sendTelegramMessage(tgMsg);
     alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
-
   const handleRaceRegistration = async () => {
     setLoading(true);
 
@@ -1051,8 +1077,7 @@ export default function Home() {
       </div>
     )
   };
-
-  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
+if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
@@ -1086,6 +1111,12 @@ export default function Home() {
 
           {rulesSelectedEvent ? (
             <div style={{fontSize: '1.1rem', whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
+              {events.find(e => e.id === rulesSelectedEvent)?.patterns_url && (
+                <div style={{marginBottom: '20px', padding: '15px', background: '#e3f2fd', borderRadius: '8px', border: '1px solid #90caf9'}}>
+                  <strong>🔗 Odkaz na úlohy (Patterny): </strong>
+                  <a href={events.find(e => e.id === rulesSelectedEvent).patterns_url} target="_blank" rel="noopener noreferrer" style={{color: '#0288d1', fontWeight: 'bold'}}>Otevřít úlohy ke stažení</a>
+                </div>
+              )}
               {rulesData || 'Pro tento závod nejsou zadány žádné propozice.'}
             </div>
           ) : (
@@ -1278,8 +1309,15 @@ export default function Home() {
                           onChange={e => setEditEventPropsText(e.target.value)} 
                           style={{...styles.input, height: '300px', fontFamily: 'monospace'}}
                         />
-                        <div style={{display: 'flex', gap: '10px'}}>
-                          <button onClick={() => saveEventProps(editingEventPropsId)} style={{...styles.btnSave, background: '#0277bd'}}>Uložit propozice</button>
+                        <input 
+                           type="text" 
+                           placeholder="Odkaz (URL) na stažení úloh" 
+                           value={editEventPatternsUrl} 
+                           onChange={e => setEditEventPatternsUrl(e.target.value)} 
+                           style={{...styles.input, marginTop: '10px', border: '2px solid #0288d1'}} 
+                        />
+                        <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+                          <button onClick={() => saveEventProps(editingEventPropsId)} style={{...styles.btnSave, background: '#0277bd'}}>Uložit propozice a odkaz</button>
                           <button onClick={() => setEditingEventPropsId(null)} style={{...styles.btnOutline, marginTop: 0}}>Zrušit</button>
                         </div>
                       </div>
@@ -1755,7 +1793,7 @@ export default function Home() {
                     )
                   })()}
 
-                  {judgeEvent && judgeDiscipline && (
+                  {judgeEvent && judgeDiscipline && !evaluatingParticipant && (
                     <div style={{marginTop: '20px'}}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                         <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
