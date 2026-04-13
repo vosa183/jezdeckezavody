@@ -192,7 +192,7 @@ export default function Home() {
 
   // SPÍKR STAVY
   const [showSpeakerResults, setShowSpeakerResults] = useState(false); 
-  const [speakerFrozenDiscipline, setSpeakerFrozenDiscipline] = useState(null);
+  const [speakerResultDiscipline, setSpeakerResultDiscipline] = useState(''); // Nový stav pro roletku Spíkra
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
@@ -425,229 +425,6 @@ export default function Home() {
       if (error) alert(error.message);
       else checkUser(); 
     }
-  };
-  const handleCreateEvent = async (e) => {
-    e.preventDefault();
-    const { error } = await supabase.from('events').insert([{ 
-      name: newEventName, 
-      event_date: newEventDate, 
-      start_num_from: parseInt(newStartNumFrom),
-      start_num_to: parseInt(newStartNumTo),
-      propositions: DEFAULT_PROPOSITIONS
-    }]);
-    
-    if (error) {
-      alert(error.message);
-    } else { 
-      await logSystemAction('Vypsán nový závod', { name: newEventName });
-      const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n🏆 <b>Název:</b> ${newEventName}\n📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\nPřihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
-      await sendTelegramMessage(tgMsg);
-      try {
-        const { data: profs } = await supabase.from('profiles').select('email').not('email', 'is', null);
-        if (profs && profs.length > 0) {
-          const allEmails = profs.map(p => p.email).filter(e => e.includes('@'));
-          if (allEmails.length > 0) {
-            await fetch('/api/send-invites', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ eventName: newEventName, eventDate: newEventDate, emails: allEmails })
-            });
-          }
-        }
-      } catch (mailErr) {
-        console.error('Chyba e-mailu:', mailErr);
-      }
-      alert('Závod vytvořen a oznámení odesláno!'); 
-      window.location.reload(); 
-    }
-  };
-
-  const handleDeleteEvent = async (id, name) => {
-    if (confirm(`Opravdu chcete NENÁVRATNĚ SMAZAT závod "${name}" a všechny jeho přihlášky a výsledky?`)) {
-      const { error } = await supabase.from('events').delete().eq('id', id);
-      if (error) alert(error.message);
-      else {
-        await logSystemAction('Smazán závod', { eventName: name });
-        window.location.reload();
-      }
-    }
-  };
-
-  const toggleEventLock = async (id, currentLocked, eventName) => {
-    if (confirm(currentLocked ? 'Opravdu chcete závod znovu otevřít pro přihlášky?' : 'Opravdu chcete uzamknout přihlášky a odeslat startku rozhodčímu a hlasateli?')) {
-      const { error } = await supabase.from('events').update({ is_locked: !currentLocked }).eq('id', id);
-      if (error) alert(error.message);
-      else window.location.reload();
-    }
-  };
-
-  const startEditingEventProps = (ev) => {
-    setEditingEventPropsId(ev.id);
-    setEditEventPropsText(ev.propositions || '');
-    setEditEventPatternsUrl(ev.patterns_url || '');
-  };
-
-  const saveEventProps = async (id) => {
-    const { error } = await supabase.from('events').update({ 
-       propositions: editEventPropsText,
-       patterns_url: editEventPatternsUrl 
-    }).eq('id', id);
-    
-    if (error) {
-       if (error.message.includes('patterns_url')) {
-          alert('Upozornění: Vaše databáze zatím nepodporuje ukládání odkazu na úlohy (chybí sloupec patterns_url). Ukládám jen propozice.');
-          await supabase.from('events').update({ propositions: editEventPropsText }).eq('id', id);
-       } else {
-          return alert(error.message);
-       }
-    }
-    
-    alert('Uloženo!');
-    setEditingEventPropsId(null);
-    checkUser();
-  };
-
-  const handleCreatePricing = async (e) => {
-    e.preventDefault();
-    let patternUrl = null;
-    if (patternFile) {
-      const fileExt = patternFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { data, error: uploadError } = await supabase.storage.from('patterns').upload(fileName, patternFile);
-      if (uploadError) return alert('Chyba při nahrávání souboru: ' + uploadError.message);
-      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-      patternUrl = urlData.publicUrl;
-    }
-
-    const { error } = await supabase.from('pricing').insert([{ discipline_name: newDiscName, price: parseInt(newDiscPrice), pattern_url: patternUrl }]);
-    if (error) alert(error.message);
-    else window.location.reload(); 
-  };
-
-  const startEditingPricing = (p) => {
-    setEditingPricingId(p.id);
-    setEditDiscPrice(p.price);
-    setEditPatternFile(null);
-  };
-
-  const handleSaveEditPricing = async (id, discName) => {
-    let patternUrl = null;
-    if (editPatternFile) {
-      const fileExt = editPatternFile.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('patterns').upload(fileName, editPatternFile);
-      if (uploadError) return alert('Chyba nahrávání: ' + uploadError.message);
-      const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
-      patternUrl = urlData.publicUrl;
-    }
-
-    const updateData = { price: parseInt(editDiscPrice) };
-    if (patternUrl) updateData.pattern_url = patternUrl;
-
-    const { error } = await supabase.from('pricing').update(updateData).eq('id', id);
-    if (error) alert(error.message);
-    else {
-      setEditingPricingId(null);
-      window.location.reload();
-    }
-  };
-
-  const handleDeletePricing = async (id, discName) => {
-    if (confirm(`Opravdu chcete smazat disciplínu ${discName}?`)) {
-      await supabase.from('pricing').delete().eq('id', id);
-      window.location.reload();
-    }
-  };
-
-  const updatePaymentNote = async (id, note, riderName) => {
-    await supabase.from('race_participants').update({ payment_note: note }).eq('id', id);
-  };
-
-  const togglePaymentStatus = async (id, currentStatus) => {
-    await supabase.from('race_participants').update({ is_paid: !currentStatus }).eq('id', id);
-    checkUser();
-  };
-
-  const handleDeleteSingleDiscipline = async (id, riderName, discipline) => {
-    if(confirm(`Opravdu smazat disciplínu "${discipline}" u jezdce ${riderName}?`)) {
-      await supabase.from('race_participants').delete().eq('id', id);
-      checkUser();
-    }
-  };
-
-  const handleDeleteWholeRider = async (riderName, eventId) => {
-    if(confirm(`NENÁVRATNĚ smazat VŠECHNY přihlášky jezdce ${riderName} z tohoto závodu?`)) {
-      await supabase.from('race_participants').delete().eq('rider_name', riderName).eq('event_id', eventId);
-      checkUser();
-    }
-  };
-
-  const handlePayAll = async (riderName, eventId) => {
-    await supabase.from('race_participants').update({is_paid: true}).eq('rider_name', riderName).eq('event_id', eventId);
-    checkUser();
-  };
-
-  const handleUpdateSchedule = async (eventId, currentSchedule) => {
-    const msg = prompt("Zadejte textový plán závodů:", currentSchedule || "");
-    if (msg !== null) {
-      const { error } = await supabase.from('events').update({ schedule: msg }).eq('id', eventId);
-      if (!error && msg.trim() !== '') {
-        await sendTelegramMessage(`📅 <b>AKTUÁLNÍ PLÁN ZÁVODŮ:</b>\n\n${msg}`);
-        checkUser();
-      }
-    }
-  };
-
-  const sendManualTgMessage = async () => {
-    if(!manualTgMessage) return;
-    await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
-    alert('Odesláno!');
-    setManualTgMessage('');
-  };
-
-  const handleEndCompetitionAndSendResults = async (eventId) => {
-    if(!confirm("Opravdu chcete slavnostně ukončit závody a odeslat kompletní výsledky?")) return;
-
-    const eventObj = events.find(e => e.id === eventId);
-    let tgMsg = `🏆 <b>ZÁVODY UKONČENY - CELKOVÉ VÝSLEDKY</b> 🏆\n\n<b>${eventObj.name}</b>\n\n`;
-
-    const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
-
-    disciplines.forEach(disc => {
-      const ridersInDisc = allRegistrations.filter(r => r.event_id === eventId && r.discipline === disc);
-      const scoredRiders = ridersInDisc
-        .map(r => {
-          const sObj = scoresheets.find(s => s.participant_id === r.id);
-          const sc = sObj?.score_data?.is_dq ? 'DQ' : (sObj ? Number(sObj.total_score) : -999);
-          return { ...r, totalScore: sc };
-        })
-        .filter(r => r.totalScore !== -999)
-        .sort((a, b) => {
-          if (a.totalScore === 'DQ') return 1;
-          if (b.totalScore === 'DQ') return -1;
-          return b.totalScore - a.totalScore;
-        }); 
-
-      if(scoredRiders.length > 0) {
-        tgMsg += `📍 <b>${disc}</b>\n`;
-        scoredRiders.forEach((r, index) => {
-          let medal = '🏅';
-          if(r.totalScore === 'DQ') medal = '❌';
-          else if(index === 0) medal = '🥇';
-          else if(index === 1) medal = '🥈';
-          else if(index === 2) medal = '🥉';
-          
-          const scoreText = r.totalScore === 'DQ' ? 'DQ' : `${r.totalScore} b.`;
-          tgMsg += `${medal} ${index + 1}. ${r.rider_name} (${r.horse_name}) - <b>${scoreText}</b>\n`;
-        });
-        tgMsg += `\n`;
-      }
-    });
-
-    tgMsg += `Děkujeme všem jezdcům a gratulujeme vítězům! 🎉 Originální archy naleznete v naší skupině.`;
-
-    await sendTelegramMessage(tgMsg);
-    alert('Závody byly ukončeny a výsledková listina odeslána!');
   };
   const handleRaceRegistration = async () => {
     setLoading(true);
@@ -1057,6 +834,9 @@ export default function Home() {
 if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
+  const lockedEvent = events.find(ev => ev.is_locked);
+  
+  // ROZHODČÍ: Aktivní disciplíny a listina
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs')) : [];
   const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => {
     if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
@@ -1065,19 +845,19 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
     return a.start_number - b.start_number;
   }) : [];
 
-  const lockedEvent = events.find(ev => ev.is_locked);
+  // SPÍKR: Proměnné
   const speakerEventId = lockedEvent?.id;
-  const speakerDiscipline = lockedEvent?.active_discipline;
+  const speakerLiveDiscipline = lockedEvent?.active_discipline; // Co má zrovna rozkliknuté rozhodčí
+  const allSpeakerDisciplines = speakerEventId ? [...new Set(allRegistrations.filter(r => r.event_id === speakerEventId).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs')) : [];
   
-  // SPÍKR: "Mrazák" na disciplínu, aby mu nezmizela při vyhlašování
-  const activeSpeakerDiscipline = showSpeakerResults && speakerFrozenDiscipline ? speakerFrozenDiscipline : speakerDiscipline;
-  
-  const speakerStartList = speakerEventId && activeSpeakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === activeSpeakerDiscipline).sort((a, b) => {
+  const speakerLiveList = speakerEventId && speakerLiveDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerLiveDiscipline).sort((a, b) => {
     if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
     if (a.draw_order !== null) return -1;
     if (b.draw_order !== null) return 1;
     return a.start_number - b.start_number;
   }) : [];
+
+  const speakerResultList = speakerEventId && speakerResultDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerResultDiscipline) : [];
 
   const rulesData = rulesSelectedEvent ? events.find(e => e.id === rulesSelectedEvent)?.propositions : null;
 
@@ -1437,7 +1217,6 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                           </div>
                           
                           <div style={{overflowX: 'auto'}}>
-                            {/* Rozdělená startka podle disciplín */}
                             {(() => {
                               const evRegs = allRegistrations.filter(r => r.event_id === adminSelectedEvent);
                               const evDisciplines = [...new Set(evRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
@@ -1852,97 +1631,49 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
 
             {effectiveRole === 'speaker' && (
               <div className="no-print">
-                 <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
-                   <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele</h3>
-                 </div>
-                 
-                 {speakerEventId ? (
-                   <div>
-                     <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
-                       <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
-                       <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
-                     </div>
+                <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
+                  <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele</h3>
+                  
+                  {speakerEventId && (
+                    <div style={{display: 'flex', gap: '10px'}}>
+                      <button 
+                        onClick={() => setShowSpeakerResults(false)} 
+                        style={{...styles.btnSave, background: !showSpeakerResults ? '#0288d1' : '#e0e0e0', color: !showSpeakerResults ? '#fff' : '#333'}}
+                      >
+                        📡 Živá Startka
+                      </button>
+                      <button 
+                        onClick={() => setShowSpeakerResults(true)} 
+                        style={{...styles.btnSave, background: showSpeakerResults ? '#e65100' : '#e0e0e0', color: showSpeakerResults ? '#fff' : '#333'}}
+                      >
+                        🏆 Výsledky k vyhlášení
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                     {!activeSpeakerDiscipline ? (
-                       <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
-                         <h2>Čeká se na rozhodčího...</h2>
-                         <p>Zde se automaticky zobrazí listina, jakmile rozhodčí vybere disciplínu.</p>
-                       </div>
-                     ) : (
-                       <div style={{marginTop: '30px'}}>
-                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>
-                            <h2 style={{fontSize: '2rem', margin: 0, color: '#5d4037'}}>ARÉNA: {activeSpeakerDiscipline}</h2>
-                            <button onClick={() => {
-                              if (!showSpeakerResults) {
-                                // ZAPNUTÍ MRAZÁKU (uložíme aktuální disciplínu a zmrazíme ji pro tisk)
-                                setSpeakerFrozenDiscipline(speakerDiscipline);
-                                setShowSpeakerResults(true);
-                              } else {
-                                // VYPNUTÍ MRAZÁKU (vrátíme se k tomu, co má naklikáno rozhodčí)
-                                setSpeakerFrozenDiscipline(null);
-                                setShowSpeakerResults(false);
-                              }
-                            }} style={{...styles.btnSave, background: showSpeakerResults ? '#e65100' : '#4caf50', padding: '10px 20px', fontSize: '1.1rem'}}>
-                              {showSpeakerResults ? '🔙 Zpět na Startku (Rozmrazit)' : '🏆 Zobrazit výsledky a zmrazit tabulku'}
-                            </button>
-                         </div>
+                {speakerEventId ? (
+                  <div>
+                    {!showSpeakerResults ? (
+                      <div>
+                        {/* ŽIVÁ STARTKA */}
+                        <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
+                          <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
+                          <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
+                        </div>
 
-                         {showSpeakerResults ? (
-                            <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
-                              <thead>
-                                <tr style={{background: '#fff3e0', textAlign: 'left', fontSize: '1.2rem'}}>
-                                  <th style={{padding: '15px'}}>Pořadí</th>
-                                  <th style={{padding: '15px'}}>St. č.</th>
-                           <th style={{padding: '15px'}}>Jezdec</th>
-                                  <th style={{padding: '15px'}}>Kůň</th>
-                                  <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {(() => {
-                                   const scoredRiders = speakerStartList
-                                     .map(r => {
-                                       const sObj = scoresheets.find(s => s.participant_id === r.id);
-                                       const sc = sObj?.score_data?.is_dq ? 'DQ' : (sObj ? Number(sObj.total_score) : -999);
-                                       return { ...r, totalScore: sc };
-                                     })
-                                     .filter(r => r.totalScore !== -999)
-                                     .sort((a, b) => {
-                                       // ABSOLUTNÍ PŘEDNOST: Políčko Draw
-                                       if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
-                                       if (a.draw_order !== null) return -1;
-                                       if (b.draw_order !== null) return 1;
+                        {!speakerLiveDiscipline ? (
+                          <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
+                            <h2>Čeká se na rozhodčího...</h2>
+                            <p>Zde se automaticky zobrazí listina, jakmile rozhodčí vybere disciplínu.</p>
+                          </div>
+                        ) : (
+                          <div style={{marginTop: '30px'}}>
+                            <div style={{borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>
+                              <h2 style={{fontSize: '2rem', margin: 0, color: '#5d4037'}}>ŽIVĚ ARÉNA: {speakerLiveDiscipline}</h2>
+                              <p style={{margin: '5px 0 0 0', color: '#666'}}>Zrcadlí se to, co právě vidí a hodnotí rozhodčí.</p>
+                            </div>
 
-                                       // Pokud nemají Draw, rozhoduje skóre
-                                       if (a.totalScore === 'DQ') return 1;
-                                       if (b.totalScore === 'DQ') return -1;
-                                       return b.totalScore - a.totalScore;
-                                     });
-                                     
-                                   if (scoredRiders.length === 0) return <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center'}}>Zatím nikdo nedojel.</td></tr>;
-
-                                   return scoredRiders.map((r, index) => {
-                                      let medal = '';
-                                      if(r.totalScore === 'DQ') medal = '❌';
-                                      else if(index === 0) medal = '🥇';
-                                      else if(index === 1) medal = '🥈';
-                                      else if(index === 2) medal = '🥉';
-                                      
-                                      const scoreText = r.totalScore === 'DQ' ? 'DQ' : `${r.totalScore} b.`;
-                                      return (
-                                        <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: '#fff'}}>
-                                          <td style={{padding: '15px', fontWeight: 'bold'}}>{medal} {index + 1}. {r.draw_order ? `(Draw ${r.draw_order})` : ''}</td>
-                                          <td style={{padding: '15px', fontWeight: '900', color: '#5d4037'}}>{r.start_number}</td>
-                                          <td style={{padding: '15px'}}>{r.rider_name}</td>
-                                          <td style={{padding: '15px'}}>{r.horse_name}</td>
-                                          <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: r.totalScore === 'DQ' ? 'red' : '#2e7d32'}}>{scoreText}</td>
-                                        </tr>
-                                      )
-                                   });
-                                })()}
-                              </tbody>
-                            </table>
-                         ) : (
                             <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
                               <thead>
                                 <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
@@ -1954,7 +1685,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                                 </tr>
                               </thead>
                               <tbody>
-                                {speakerStartList.length > 0 ? speakerStartList.map(r => {
+                                {speakerLiveList.length > 0 ? speakerLiveList.map(r => {
                                   const isScored = scoresheets.some(s => s.participant_id === r.id);
                                   return (
                                     <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: isScored ? '#f1f8e9' : '#fff'}}>
@@ -1972,13 +1703,88 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                                 )}
                               </tbody>
                             </table>
-                         )}
-                       </div>
-                     )}
-                   </div>
-                 ) : (
-                   <p style={{textAlign: 'center', padding: '20px', color: '#666'}}>Aktuálně neprobíhá žádný uzamčený závod.</p>
-                 )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        {/* VÝSLEDKY K VYHLÁŠENÍ (ZMRAZENO) */}
+                        <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', marginBottom: '20px'}}>
+                          <h2 style={{color: '#e65100', margin: '0 0 15px 0'}}>Vyberte disciplínu k vyhlášení</h2>
+                          <p style={{margin: '0 0 10px 0'}}>Tato tabulka je nezávislá na rozhodčím. Můžete v klidu vyhlašovat.</p>
+                          <select 
+                            value={speakerResultDiscipline} 
+                            onChange={e => setSpeakerResultDiscipline(e.target.value)} 
+                            style={{...styles.input, border: '2px solid #e65100', fontSize: '1.2rem', padding: '15px'}}
+                          >
+                            <option value="">-- Zvolte disciplínu --</option>
+                            {allSpeakerDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+
+                        {speakerResultDiscipline && (
+                          <div style={{marginTop: '20px'}}>
+                            <h2 style={{fontSize: '2rem', margin: '0 0 20px 0', color: '#5d4037', borderBottom: '3px solid #5d4037', paddingBottom: '10px'}}>KONEČNÉ VÝSLEDKY: {speakerResultDiscipline}</h2>
+                            <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                              <thead>
+                                <tr style={{background: '#fff3e0', textAlign: 'left', fontSize: '1.2rem'}}>
+                                  <th style={{padding: '15px'}}>Pořadí</th>
+                                  <th style={{padding: '15px'}}>St. č.</th>
+                                  <th style={{padding: '15px'}}>Jezdec</th>
+                                  <th style={{padding: '15px'}}>Kůň</th>
+                                  <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(() => {
+                                   const scoredRiders = speakerResultList
+                                     .map(r => {
+                                       const sObj = scoresheets.find(s => s.participant_id === r.id);
+                                       const sc = sObj?.score_data?.is_dq ? 'DQ' : (sObj ? Number(sObj.total_score) : -999);
+                                       return { ...r, totalScore: sc };
+                                     })
+                                     .filter(r => r.totalScore !== -999)
+                                     .sort((a, b) => {
+                                       if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+                                       if (a.draw_order !== null) return -1;
+                                       if (b.draw_order !== null) return 1;
+
+                                       if (a.totalScore === 'DQ') return 1;
+                                       if (b.totalScore === 'DQ') return -1;
+                                       return b.totalScore - a.totalScore;
+                                     });
+                                     
+                                   if (scoredRiders.length === 0) return <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center'}}>Zatím nejsou k dispozici žádné výsledky.</td></tr>;
+
+                                   return scoredRiders.map((r, index) => {
+                                      let medal = '';
+                                      if(r.totalScore === 'DQ') medal = '❌';
+                                      else if(index === 0) medal = '🥇';
+                                      else if(index === 1) medal = '🥈';
+                                      else if(index === 2) medal = '🥉';
+                                      
+                                      const scoreText = r.totalScore === 'DQ' ? 'DQ' : `${r.totalScore} b.`;
+                                      return (
+                                        <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: '#fff'}}>
+                                          <td style={{padding: '15px', fontWeight: 'bold'}}>{medal} {index + 1}. {r.draw_order ? <span style={{fontSize:'1rem', color:'#e65100'}}>(Draw {r.draw_order})</span> : ''}</td>
+                                          <td style={{padding: '15px', fontWeight: '900', color: '#5d4037'}}>{r.start_number}</td>
+                                          <td style={{padding: '15px'}}>{r.rider_name}</td>
+                                          <td style={{padding: '15px'}}>{r.horse_name}</td>
+                                          <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: r.totalScore === 'DQ' ? 'red' : '#2e7d32'}}>{scoreText}</td>
+                                        </tr>
+                                      )
+                                   });
+                                })()}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p style={{textAlign: 'center', padding: '20px', color: '#666'}}>Aktuálně neprobíhá žádný uzamčený závod.</p>
+                )}
               </div>
             )}
 
