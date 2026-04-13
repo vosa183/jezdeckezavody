@@ -7,7 +7,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// ZVUKOVÉ UPOZORNĚNÍ PRO ŽLUTOU VYSÍLAČKU A SPÍKRA
 const playAlert = () => {
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -26,7 +25,6 @@ const playAlert = () => {
   }
 };
 
-// BEZPEČNÉ ODESÍLÁNÍ NA TELEGRAM
 const sendTelegramMessage = async (text) => {
   try {
     await fetch('/api/telegram', {
@@ -130,7 +128,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   
   const [myHorses, setMyHorses] = useState([]);
-  const [allHorses, setAllHorses] = useState([]); // Pro veterinu
+  const [allHorses, setAllHorses] = useState([]);
   const [allRegistrations, setAllRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
   const [pricing, setPricing] = useState([]);
@@ -168,7 +166,7 @@ export default function Home() {
   const [newDiscName, setNewDiscName] = useState('');
   const [newDiscPrice, setNewDiscPrice] = useState('');
   const [adminSelectedEvent, setAdminSelectedEvent] = useState(''); 
-  const [adminTab, setAdminTab] = useState('settings'); // settings, accounts, telegram, cashier, vet
+  const [adminTab, setAdminTab] = useState('settings'); 
   const [manualTgMessage, setManualTgMessage] = useState('');
   
   const [editingEventPropsId, setEditingEventPropsId] = useState(null);
@@ -192,12 +190,11 @@ export default function Home() {
   const [isDq, setIsDq] = useState(false); 
 
   // SPÍKR STAVY
-  const [speakerHoldScore, setSpeakerHoldScore] = useState(null); 
+  const [showSpeakerResults, setShowSpeakerResults] = useState(false); 
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
   const lastInternalMsgRef = useRef('');
-  const lastScoreIdRef = useRef(null);
 
   // FILTRACE CENÍKU PODLE VĚKU
   const filteredPricing = pricing.filter(p => {
@@ -234,25 +231,11 @@ export default function Home() {
         const { data: scores } = await supabase.from('scoresheets').select('*').order('scored_at', { ascending: false });
         if (scores) {
           setScoresheets(scores);
-          const currentRole = profile?.role || simulatedRole;
-          if (currentRole === 'speaker' && scores.length > 0) {
-            const latestScore = scores[0];
-            if (lastScoreIdRef.current !== latestScore.id) {
-              if (lastScoreIdRef.current !== null && !speakerHoldScore) {
-                const part = regs.find(r => r.id === latestScore.participant_id);
-                if (part) {
-                   setSpeakerHoldScore({ ...latestScore, participantInfo: part });
-                   playAlert(); 
-                }
-              }
-              lastScoreIdRef.current = latestScore.id;
-            }
-          }
         }
       }
     }, 5000); 
     return () => clearInterval(interval);
-  }, [profile, adminSelectedEvent, judgeEvent, simulatedRole, speakerHoldScore]);
+  }, [profile, adminSelectedEvent, judgeEvent, simulatedRole]);
 
   const unlockAudio = () => {
       try {
@@ -293,7 +276,6 @@ export default function Home() {
           setAllRegistrations(regs || []);
           const { data: scores } = await supabase.from('scoresheets').select('*').order('scored_at', { ascending: false });
           setScoresheets(scores || []);
-          if(scores && scores.length > 0) lastScoreIdRef.current = scores[0].id;
         } else {
           const { data: regs } = await supabase.from('race_participants').select('*').eq('user_id', authUser.id);
           setAllRegistrations(regs || []);
@@ -385,6 +367,7 @@ export default function Home() {
       else checkUser();
     }
   };
+
   const handleCreateAccount = async (e) => {
     e.preventDefault();
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%";
@@ -443,10 +426,8 @@ export default function Home() {
       alert(error.message);
     } else { 
       await logSystemAction('Vypsán nový závod', { name: newEventName });
-      
       const tgMsg = `🎉 <b>NOVÉ ZÁVODY VYPSÁNY!</b>\n\n🏆 <b>Název:</b> ${newEventName}\n📅 <b>Datum:</b> ${new Date(newEventDate).toLocaleDateString('cs-CZ')}\n\nPřihlášky byly právě otevřeny. Těšíme se na vás pod Humprechtem! 🤠`;
       await sendTelegramMessage(tgMsg);
-
       try {
         const { data: profs } = await supabase.from('profiles').select('email').not('email', 'is', null);
         if (profs && profs.length > 0) {
@@ -462,7 +443,6 @@ export default function Home() {
       } catch (mailErr) {
         console.error('Chyba e-mailu:', mailErr);
       }
-
       alert('Závod vytvořen a oznámení odesláno (Telegram + Email)!'); 
       window.location.reload(); 
     }
@@ -560,6 +540,28 @@ export default function Home() {
 
   const togglePaymentStatus = async (id, currentStatus) => {
     await supabase.from('race_participants').update({ is_paid: !currentStatus }).eq('id', id);
+    checkUser();
+  };
+
+  // ADMIN POKLADNA - Smazání jedné disciplíny
+  const handleDeleteSingleDiscipline = async (id, riderName, discipline) => {
+    if(confirm(`Opravdu smazat disciplínu "${discipline}" u jezdce ${riderName}?`)) {
+      await supabase.from('race_participants').delete().eq('id', id);
+      checkUser();
+    }
+  };
+
+  // ADMIN POKLADNA - Smazání celého jezdce
+  const handleDeleteWholeRider = async (riderName, eventId) => {
+    if(confirm(`NENÁVRATNĚ smazat VŠECHNY přihlášky jezdce ${riderName} z tohoto závodu?`)) {
+      await supabase.from('race_participants').delete().eq('rider_name', riderName).eq('event_id', eventId);
+      checkUser();
+    }
+  };
+
+  // ADMIN POKLADNA - Zaplatit všechno
+  const handlePayAll = async (riderName, eventId) => {
+    await supabase.from('race_participants').update({is_paid: true}).eq('rider_name', riderName).eq('event_id', eventId);
     checkUser();
   };
 
@@ -749,7 +751,6 @@ export default function Home() {
     setJudgeDiscipline(discName);
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
     
-    // Nacteni manevru z pameti
     if(discName && disciplineManeuverNames[discName]) {
         const names = disciplineManeuverNames[discName];
         setManeuversInputString(names.filter(n => n.trim() !== '').join(', '));
@@ -825,11 +826,11 @@ export default function Home() {
     const penaltiesTotal = penaltyScores.reduce((acc, val) => Number(acc) + Number(val), 0); 
     return baseScore + maneuversTotal - penaltiesTotal;
   };
+
   const saveScore = async () => {
     const total = isDq ? 0 : calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores, maneuverNames: maneuverNames, is_dq: isDq };
     
-    // Uložíme si názvy do paměti prohlížeče, aby se nabídly dalšímu jezdci ve stejné disciplíně
     setDisciplineManeuverNames(prev => ({...prev, [evaluatingParticipant.discipline]: maneuverNames}));
 
     const timestamp = new Date().toISOString();
@@ -874,7 +875,6 @@ export default function Home() {
             const ridersInDiscipline = allRegistrations.filter(r => r.event_id === eventId && r.discipline === discipline).sort((a, b) => a.draw_order - b.draw_order);
             if(ridersInDiscipline.length === 0) return null;
 
-            // Dynamický počet manévrů pro tisk
             const scoredRiders = ridersInDiscipline.filter(r => scoresheets.some(s => s.participant_id === r.id));
             const signatureObj = scoredRiders.length > 0 ? scoresheets.find(s => s.participant_id === scoredRiders[0].id) : null;
             let currentManeuverNames = disciplineManeuverNames[discipline] || Array(20).fill('');
@@ -886,7 +886,7 @@ export default function Home() {
             for(let i=0; i<20; i++){
                if(currentManeuverNames[i] && currentManeuverNames[i].trim() !== '') activeCount = i + 1;
             }
-            if(activeCount === 0) activeCount = 10; // Výchozí minimum pro tisk, pokud nic nezadal
+            if(activeCount === 0) activeCount = 10; 
 
             const printNames = currentManeuverNames.slice(0, activeCount);
             const cols = Array.from({length: activeCount}, (_, i) => i);
@@ -1003,7 +1003,6 @@ export default function Home() {
     
     eventRegs.forEach(r => {
       if (!uniqueHorsesMap.has(r.horse_name)) {
-        // Zkusíme najít detaily koně z allHorses
         const hDetail = allHorses.find(h => h.name === r.horse_name);
         uniqueHorsesMap.set(r.horse_name, {
            startNumber: r.start_number,
@@ -1119,7 +1118,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* ŽLUTÁ VYSÍLAČKA */}
       {user && ['admin', 'superadmin', 'judge', 'speaker'].includes(effectiveRole) && (
         <div className="no-print" style={{ backgroundColor: '#fff9c4', border: '4px solid #fbc02d', borderRadius: '12px', padding: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{flex: 1}}>
@@ -1191,7 +1189,7 @@ export default function Home() {
                   <p>Telefon: {profile?.phone || 'Nevyplněno'}</p>
                   <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
                   <p>Obec: {profile?.city || 'Nevyplněno'}</p>
-                  <p>Narození: {profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString() : 'Nevyplněno'}</p>
+                  <p>Narození: {profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString('cs-CZ') : 'Nevyplněno'}</p>
                   {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city ) && (
                     <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
                   )}
@@ -1219,7 +1217,8 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-{!adminSelectedEvent && adminTab === 'settings' && (
+
+                {!adminSelectedEvent && adminTab === 'settings' && (
                   <div className="no-print">
                     <div style={styles.adminSection}>
                       <h4 style={{margin: '0 0 10px 0'}}>Termíny závodů</h4>
@@ -1485,7 +1484,6 @@ export default function Home() {
                             <tbody>
                               {(() => {
                                 const evRegs = allRegistrations.filter(r => r.event_id === adminSelectedEvent);
-                                // Seskupení podle jezdce (rider_name)
                                 const grouped = evRegs.reduce((acc, curr) => {
                                    if (!acc[curr.rider_name]) acc[curr.rider_name] = [];
                                    acc[curr.rider_name].push(curr);
@@ -1502,15 +1500,16 @@ export default function Home() {
                                      <tr key={riderName} style={{borderBottom: '1px solid #eee', background: allPaid ? '#e8f5e9' : 'transparent'}}>
                                        <td style={{padding: '10px'}}>
                                           <strong style={{fontSize: '1.1rem'}}>{riderName}</strong><br/>
-                                          <span style={{color: '#888', fontSize: '0.8rem'}}>St. č.: {startNumbers}</span>
+                                          <span style={{color: '#888', fontSize: '0.8rem'}}>St. č.: {startNumbers}</span><br/>
+                                          <button onClick={() => handleDeleteWholeRider(riderName, adminSelectedEvent)} style={{background: 'none', border: 'none', color: '#d32f2f', cursor: 'pointer', fontSize: '0.8rem', padding: '5px 0', marginTop: '5px'}}>🗑️ Smazat jezdce</button>
                                        </td>
                                        <td style={{padding: '10px'}}>
                                           <ul style={{margin: 0, paddingLeft: '15px', fontSize: '0.85rem'}}>
                                             {regs.map(r => (
-                                              <li key={r.id}>
+                                              <li key={r.id} style={{marginBottom: '5px'}}>
                                                 {r.discipline} - {r.price} Kč
-                                                <button onClick={() => togglePaymentStatus(r.id, r.is_paid)} style={{marginLeft: '10px', fontSize: '0.7rem', padding: '2px 5px', cursor: 'pointer', background: r.is_paid ? '#4caf50' : '#e0e0e0', color: r.is_paid ? 'white' : 'black', border: 'none', borderRadius: '3px'}}>
-                                                  {r.is_paid ? 'ZAPLACENO' : 'DLUŽÍ'}
+                                                <button onClick={() => handleDeleteSingleDiscipline(r.id, r.rider_name, r.discipline)} style={{marginLeft: '10px', fontSize: '0.7rem', padding: '2px 5px', cursor: 'pointer', background: '#ffebee', color: '#d32f2f', border: '1px solid #ffcdd2', borderRadius: '3px'}}>
+                                                  ❌
                                                 </button>
                                               </li>
                                             ))}
@@ -1521,7 +1520,9 @@ export default function Home() {
                                           {allPaid ? (
                                             <span style={{color: '#2e7d32', fontWeight: 'bold', fontSize: '1.2rem'}}>✅ VYŘÍZENO</span>
                                           ) : (
-                                            <span style={{color: '#d32f2f', fontWeight: 'bold'}}>❌ CHYBÍ PLATBA</span>
+                                            <button onClick={() => handlePayAll(riderName, adminSelectedEvent)} style={{background: '#4caf50', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer'}}>
+                                              ZAPLATIT VŠE
+                                            </button>
                                           )}
                                        </td>
                                      </tr>
@@ -1627,7 +1628,6 @@ export default function Home() {
                     const isShowmanship = evaluatingParticipant.discipline.toLowerCase().includes('showmanship') || 
                                           evaluatingParticipant.discipline.toLowerCase().includes('horsemanship') || 
                                           evaluatingParticipant.discipline.toLowerCase().includes('equitation');
-                    // Kolik manévrů je reálně pojmenovaných? Minimum 10 pro zobrazení
                     let activeCount = 0;
                     for(let i=0; i<20; i++){
                        if(maneuverNames[i] && maneuverNames[i].trim() !== '') activeCount = i + 1;
@@ -1755,7 +1755,7 @@ export default function Home() {
                     )
                   })()}
 
-                  {judgeEvent && judgeDiscipline && !evaluatingParticipant && (
+                  {judgeEvent && judgeDiscipline && (
                     <div style={{marginTop: '20px'}}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                         <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
@@ -1817,47 +1817,79 @@ export default function Home() {
 
             {effectiveRole === 'speaker' && (
               <div className="no-print">
-                
-                {speakerHoldScore ? (
-                  <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-                     <div style={{background: '#fff', borderRadius: '16px', padding: '40px', width: '100%', maxWidth: '800px', textAlign: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.5)'}}>
-                        <h1 style={{color: '#d32f2f', fontSize: '3rem', margin: '0 0 20px 0'}}>DOJEL JEZDEC</h1>
-                        <h2 style={{fontSize: '2.5rem', margin: '0 0 10px 0', textTransform: 'uppercase'}}>{speakerHoldScore.participantInfo?.discipline}</h2>
-                        <div style={{fontSize: '2rem', marginBottom: '30px', padding: '20px', background: '#f5f5f5', borderRadius: '12px'}}>
-                           <p style={{margin: '0 0 10px 0'}}>St. č.: <strong>{speakerHoldScore.participantInfo?.start_number}</strong></p>
-                           <p style={{margin: '0 0 10px 0'}}>Jezdec: <strong>{speakerHoldScore.participantInfo?.rider_name}</strong></p>
-                           <p style={{margin: '0 0 10px 0'}}>Kůň: <strong>{speakerHoldScore.participantInfo?.horse_name}</strong></p>
-                        </div>
-                        <div style={{background: speakerHoldScore.score_data?.is_dq ? '#ffcdd2' : '#e8f5e9', border: `4px solid ${speakerHoldScore.score_data?.is_dq ? '#d32f2f' : '#2e7d32'}`, borderRadius: '12px', padding: '30px', marginBottom: '40px'}}>
-                           <span style={{fontSize: '1.5rem'}}>Konečný výsledek:</span><br/>
-                           <strong style={{fontSize: '5rem', color: speakerHoldScore.score_data?.is_dq ? '#d32f2f' : '#2e7d32'}}>{speakerHoldScore.score_data?.is_dq ? 'DQ' : `${speakerHoldScore.total_score} b.`}</strong>
-                        </div>
-                        <button onClick={() => setSpeakerHoldScore(null)} style={{background: '#0288d1', color: 'white', border: 'none', padding: '20px', width: '100%', fontSize: '2rem', fontWeight: 'bold', borderRadius: '12px', cursor: 'pointer', boxShadow: '0 5px 15px rgba(2,136,209,0.4)'}}>
-                           DALŠÍ JEZDEC (NEXT) ➔
-                        </button>
+                 <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
+                   <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele</h3>
+                 </div>
+                 
+                 {speakerEventId ? (
+                   <div>
+                     <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
+                       <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
+                       <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
                      </div>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
-                      <h3 style={{marginTop: 0, color: '#5d4037'}}>Pohled Hlasatele</h3>
-                    </div>
-                    
-                    {speakerEventId ? (
-                      <div>
-                        <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', marginBottom: '20px'}}>
-                          <strong style={{color: '#333', display: 'block', marginBottom: '5px'}}>📋 Plán závodů:</strong>
-                          <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
-                        </div>
 
-                        {!speakerDiscipline ? (
-                          <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
-                            <h2>Čeká se na rozhodčího...</h2>
-                            <p>Zde se automaticky zobrazí listina, jakmile rozhodčí vybere disciplínu.</p>
-                          </div>
-                        ) : (
-                          <div style={{marginTop: '30px'}}>
-                            <h2 style={{fontSize: '2rem', textAlign: 'center', color: '#5d4037', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>ARÉNA: {speakerDiscipline}</h2>
+                     {!speakerDiscipline ? (
+                       <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
+                         <h2>Čeká se na rozhodčího...</h2>
+                         <p>Zde se automaticky zobrazí listina, jakmile rozhodčí vybere disciplínu.</p>
+                       </div>
+                     ) : (
+                       <div style={{marginTop: '30px'}}>
+                         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>
+                            <h2 style={{fontSize: '2rem', margin: 0, color: '#5d4037'}}>ARÉNA: {speakerDiscipline}</h2>
+                            <button onClick={() => setShowSpeakerResults(!showSpeakerResults)} style={{...styles.btnSave, background: showSpeakerResults ? '#e65100' : '#4caf50', padding: '10px 20px', fontSize: '1.1rem'}}>
+                              {showSpeakerResults ? '🔙 Zpět na Startku' : '🏆 Zobrazit výsledky k vyhlášení'}
+                            </button>
+                         </div>
+
+                         {showSpeakerResults ? (
+                            <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
+                              <thead>
+                                <tr style={{background: '#fff3e0', textAlign: 'left', fontSize: '1.2rem'}}>
+                                  <th style={{padding: '15px'}}>Pořadí</th>
+                                  <th style={{padding: '15px'}}>Jezdec</th>
+                                  <th style={{padding: '15px'}}>Kůň</th>
+                                  <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(() => {
+                                   const scoredRiders = speakerStartList
+                                     .map(r => {
+                                       const sObj = scoresheets.find(s => s.participant_id === r.id);
+                                       const sc = sObj?.score_data?.is_dq ? 'DQ' : (sObj ? Number(sObj.total_score) : -999);
+                                       return { ...r, totalScore: sc };
+                                     })
+                                     .filter(r => r.totalScore !== -999)
+                                     .sort((a, b) => {
+                                       if (a.totalScore === 'DQ') return 1;
+                                       if (b.totalScore === 'DQ') return -1;
+                                       return b.totalScore - a.totalScore;
+                                     });
+                                     
+                                   if (scoredRiders.length === 0) return <tr><td colSpan="4" style={{padding: '20px', textAlign: 'center'}}>Zatím nikdo nedojel.</td></tr>;
+
+                                   return scoredRiders.map((r, index) => {
+                                      let medal = '';
+                                      if(r.totalScore === 'DQ') medal = '❌';
+                                      else if(index === 0) medal = '🥇';
+                                      else if(index === 1) medal = '🥈';
+                                      else if(index === 2) medal = '🥉';
+                                      
+                                      const scoreText = r.totalScore === 'DQ' ? 'DQ' : `${r.totalScore} b.`;
+                                      return (
+                                        <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: '#fff'}}>
+                                          <td style={{padding: '15px', fontWeight: 'bold'}}>{medal} {index + 1}.</td>
+                                          <td style={{padding: '15px'}}>{r.rider_name}</td>
+                                          <td style={{padding: '15px'}}>{r.horse_name}</td>
+                                          <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: r.totalScore === 'DQ' ? 'red' : '#2e7d32'}}>{scoreText}</td>
+                                        </tr>
+                                      )
+                                   });
+                                })()}
+                              </tbody>
+                            </table>
+                         ) : (
                             <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '20px'}}>
                               <thead>
                                 <tr style={{background: '#d7ccc8', textAlign: 'left', fontSize: '1.2rem'}}>
@@ -1865,23 +1897,20 @@ export default function Home() {
                                   <th style={{padding: '15px'}}>Číslo</th>
                                   <th style={{padding: '15px'}}>Jezdec</th>
                                   <th style={{padding: '15px'}}>Kůň</th>
-                                  <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
+                                  <th style={{padding: '15px', textAlign: 'center'}}>Stav</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {speakerStartList.length > 0 ? speakerStartList.map(r => {
                                   const isScored = scoresheets.some(s => s.participant_id === r.id);
-                                  const scoreObj = scoresheets.find(s => s.participant_id === r.id);
-                                  const displayScore = scoreObj?.score_data?.is_dq ? 'DQ' : `${scoreObj?.total_score} bodů`;
-                                  
                                   return (
                                     <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: isScored ? '#f1f8e9' : '#fff'}}>
                                       <td style={{padding: '15px', fontWeight: 'bold', color: '#5d4037'}}>{r.draw_order || '-'}</td>
                                       <td style={{padding: '15px', fontWeight: '900', fontSize: '1.8rem'}}>{r.start_number}</td>
                                       <td style={{padding: '15px'}}>{r.rider_name}</td>
                                       <td style={{padding: '15px'}}><strong>{r.horse_name}</strong></td>
-                                      <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: isScored ? (scoreObj?.score_data?.is_dq ? 'red' : '#2e7d32') : '#ccc'}}>
-                                        {isScored ? displayScore : 'Na trati'}
+                                      <td style={{padding: '15px', textAlign: 'center', fontWeight: 'bold', color: isScored ? '#2e7d32' : '#ccc'}}>
+                                        {isScored ? '✅ V CÍLI' : 'ČEKÁ'}
                                       </td>
                                     </tr>
                                   );
@@ -1890,14 +1919,13 @@ export default function Home() {
                                 )}
                               </tbody>
                             </table>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p style={{textAlign: 'center', padding: '20px', color: '#666'}}>Aktuálně neprobíhá žádný uzamčený závod.</p>
-                    )}
-                  </>
-                )}
+                         )}
+                       </div>
+                     )}
+                   </div>
+                 ) : (
+                   <p style={{textAlign: 'center', padding: '20px', color: '#666'}}>Aktuálně neprobíhá žádný uzamčený závod.</p>
+                 )}
               </div>
             )}
 
