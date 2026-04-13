@@ -171,7 +171,7 @@ export default function Home() {
   
   const [editingEventPropsId, setEditingEventPropsId] = useState(null);
   const [editEventPropsText, setEditEventPropsText] = useState('');
-  const [editEventPatternsUrl, setEditEventPatternsUrl] = useState(''); // NOVÉ POLÍČKO PRO ODKAZ NA ÚLOHY
+  const [editEventPatternsUrl, setEditEventPatternsUrl] = useState(''); 
   const [rulesSelectedEvent, setRulesSelectedEvent] = useState('');
 
   const [newAccountEmail, setNewAccountEmail] = useState('');
@@ -192,12 +192,13 @@ export default function Home() {
 
   // SPÍKR STAVY
   const [showSpeakerResults, setShowSpeakerResults] = useState(false); 
+  const [speakerFrozenDiscipline, setSpeakerFrozenDiscipline] = useState(null);
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
   const lastInternalMsgRef = useRef('');
 
-  // FILTRACE CENÍKU PODLE VĚKU A ABECEDNÍ ŘAZENÍ (TADY JE TO OPRAVENÉ)
+  // FILTRACE CENÍKU PODLE VĚKU + ABECEDA
   const filteredPricing = pricing.filter(p => {
     if (riderAgeCategory === '18+') {
       const n = p.discipline_name.toLowerCase();
@@ -216,7 +217,6 @@ export default function Home() {
         setEvents(evts);
         const currentRole = profile?.role || simulatedRole;
         if (['admin', 'superadmin', 'judge', 'speaker'].includes(currentRole)) {
-          // Zkusíme najít vybraný, uzamčený nebo aspoň nejnovější závod pro vysílačku
           const activeEv = evts.find(e => e.id === adminSelectedEvent || e.id === judgeEvent) || evts.find(e => e.is_locked) || evts[0];
           if (activeEv && activeEv.internal_message && activeEv.internal_message !== lastInternalMsgRef.current) {
             if (lastInternalMsgRef.current !== '') playAlert(); 
@@ -404,12 +404,10 @@ export default function Home() {
     }, 500); 
   };
 
-  // GLOBÁLNÍ VYSÍLAČKA - OPRAVA CHYBY
   const handleUpdateInternalMessage = async (eventId, currentMessage) => {
     let targetEventId = eventId;
     let targetMessage = currentMessage;
 
-    // Pokud nemáme vybraný žádný konkrétní závod, najdeme uzamčený nebo aspoň ten nejnovější
     if (!targetEventId) {
       const fallbackEvent = events.find(e => e.is_locked) || events[0];
       if (fallbackEvent) {
@@ -459,7 +457,7 @@ export default function Home() {
       } catch (mailErr) {
         console.error('Chyba e-mailu:', mailErr);
       }
-      alert('Závod vytvořen a oznámení odesláno (Telegram + Email)!'); 
+      alert('Závod vytvořen a oznámení odesláno!'); 
       window.location.reload(); 
     }
   };
@@ -570,7 +568,6 @@ export default function Home() {
     checkUser();
   };
 
-  // ADMIN POKLADNA - Smazání jedné disciplíny
   const handleDeleteSingleDiscipline = async (id, riderName, discipline) => {
     if(confirm(`Opravdu smazat disciplínu "${discipline}" u jezdce ${riderName}?`)) {
       await supabase.from('race_participants').delete().eq('id', id);
@@ -578,7 +575,6 @@ export default function Home() {
     }
   };
 
-  // ADMIN POKLADNA - Smazání celého jezdce
   const handleDeleteWholeRider = async (riderName, eventId) => {
     if(confirm(`NENÁVRATNĚ smazat VŠECHNY přihlášky jezdce ${riderName} z tohoto závodu?`)) {
       await supabase.from('race_participants').delete().eq('rider_name', riderName).eq('event_id', eventId);
@@ -586,14 +582,13 @@ export default function Home() {
     }
   };
 
-  // ADMIN POKLADNA - Zaplatit všechno
   const handlePayAll = async (riderName, eventId) => {
     await supabase.from('race_participants').update({is_paid: true}).eq('rider_name', riderName).eq('event_id', eventId);
     checkUser();
   };
 
   const handleUpdateSchedule = async (eventId, currentSchedule) => {
-    const msg = prompt("Zadejte textový plán závodů (odešle se na Telegram):", currentSchedule || "");
+    const msg = prompt("Zadejte textový plán závodů:", currentSchedule || "");
     if (msg !== null) {
       const { error } = await supabase.from('events').update({ schedule: msg }).eq('id', eventId);
       if (!error && msg.trim() !== '') {
@@ -606,7 +601,7 @@ export default function Home() {
   const sendManualTgMessage = async () => {
     if(!manualTgMessage) return;
     await sendTelegramMessage(`📢 <b>INFORMACE OD POŘADATELE:</b>\n\n${manualTgMessage}`);
-    alert('Odesláno na Telegram!');
+    alert('Odesláno!');
     setManualTgMessage('');
   };
 
@@ -752,7 +747,7 @@ export default function Home() {
           });
         }
       } catch (mailErr) {
-        console.error('Chyba při odesílání potvrzovacího e-mailu:', mailErr);
+        console.error('Chyba při odesílání e-mailu:', mailErr);
       }
 
       alert(`Přihláška odeslána! Startovní číslo: ${assignedNumber}.`);
@@ -775,6 +770,7 @@ export default function Home() {
 
   const handleJudgeDisciplineChange = async (eventId, discName) => {
     setJudgeDiscipline(discName);
+    setSpeakerFrozenDiscipline(null); // Reset mrazáku spíkra při změně disciplíny
     await supabase.from('events').update({ active_discipline: discName }).eq('id', eventId);
     
     if(discName && disciplineManeuverNames[discName]) {
@@ -890,7 +886,7 @@ export default function Home() {
     const eventObj = events.find(e => e.id === eventId);
     if (!eventObj) return null;
 
-    const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))];
+    const disciplines = [...new Set(allRegistrations.filter(r => r.event_id === eventId).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
 
     return (
       <div className="print-area">
@@ -919,29 +915,29 @@ export default function Home() {
             
             return (
               <div key={discipline} className="page-break" style={{ position: 'relative', minHeight: '95vh', paddingBottom: '70px', marginBottom: '40px' }}>
-                <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid black', paddingBottom: '10px' }}>
-                  <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.5rem' }}>{eventObj.name}</h2>
-                  <h3 style={{ margin: '5px 0 0 0', color: '#444' }}>SCORESHEET: {discipline}</h3>
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
-                    <strong style={{fontSize: '1.1rem'}}>Úloha (Pattern):</strong>
-                    <input type="text" className="print-input" placeholder="Zadejte název úlohy" style={{ border: 'none', borderBottom: '1px dashed black', fontSize: '1.1rem', width: '250px', background: 'transparent', textAlign: 'center' }} />
+                <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '3px solid black', paddingBottom: '10px' }}>
+                  <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.8rem', color: 'black' }}>{eventObj.name}</h2>
+                  <h3 style={{ margin: '5px 0 0 0', color: 'black', fontSize: '1.4rem' }}>SCORESHEET: {discipline}</h3>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '15px' }}>
+                    <strong style={{fontSize: '1.2rem', color: 'black'}}>Úloha (Pattern):</strong>
+                    <input type="text" className="print-input" placeholder="Zadejte název úlohy" style={{ border: 'none', borderBottom: '2px dotted black', fontSize: '1.2rem', width: '300px', background: 'transparent', textAlign: 'center', color: 'black' }} />
                   </div>
                 </div>
                 
-                <table className="wrc-scoresheet" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.95rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1rem', border: '2px solid black' }}>
                   <thead>
                     <tr>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>DRAW</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '50px', textAlign: 'center' }}>EXH#</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'left', minWidth: '150px' }}>JEZDEC / KŮŇ</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '4px', width: '40px', fontSize: '0.7rem' }}></th>
-                      <th colSpan={activeCount} style={{ border: '2px solid black', padding: '8px', textAlign: 'center', background: '#f5f5f5' }}>MANÉVRY</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '70px', textAlign: 'center' }}>PENALTY<br/>TOTAL</th>
-                      <th rowSpan="2" style={{ border: '2px solid black', padding: '8px', width: '80px', textAlign: 'center', fontSize: '1.1rem' }}>FINAL<br/>SCORE</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '10px', width: '50px', textAlign: 'center', background: '#e0e0e0', color: 'black' }}>DRAW</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '10px', width: '50px', textAlign: 'center', background: '#e0e0e0', color: 'black' }}>EXH#</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'left', minWidth: '180px', background: '#e0e0e0', color: 'black' }}>JEZDEC / KŮŇ</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '6px', width: '40px', fontSize: '0.8rem', background: '#e0e0e0', color: 'black' }}></th>
+                      <th colSpan={activeCount} style={{ border: '2px solid black', padding: '10px', textAlign: 'center', background: '#eeeeee', color: 'black' }}>MANÉVRY</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '10px', width: '80px', textAlign: 'center', background: '#e0e0e0', color: 'black' }}>PENALTY<br/>TOTAL</th>
+                      <th rowSpan="2" style={{ border: '2px solid black', padding: '10px', width: '90px', textAlign: 'center', fontSize: '1.2rem', background: '#e0e0e0', color: 'black' }}>FINAL<br/>SCORE</th>
                     </tr>
                     <tr>
                       {printNames.map((name, i) => (
-                        <th key={i} style={{ border: '2px solid black', padding: '6px', width: '40px', textAlign: 'center', background: '#f5f5f5', fontSize: '0.7rem' }}>{name || i + 1}</th>
+                        <th key={i} style={{ border: '2px solid black', padding: '8px', width: '45px', textAlign: 'center', background: '#eeeeee', fontSize: '0.8rem', color: 'black' }}>{name || i + 1}</th>
                       ))}
                     </tr>
                   </thead>
@@ -953,29 +949,29 @@ export default function Home() {
                       return (
                         <React.Fragment key={r.id}>
                           <tr>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{r.draw_order || ''}</td>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.2rem' }}>{r.start_number}</td>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', borderRight: '1px solid black' }}>
-                              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{r.rider_name}</div>
-                              <div style={{ color: '#444', fontStyle: 'italic' }}>{r.horse_name}</div>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'center', fontWeight: 'bold', color: 'black' }}>{r.draw_order || ''}</td>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'center', fontWeight: '900', fontSize: '1.3rem', color: 'black' }}>{r.start_number}</td>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', borderRight: '2px solid black' }}>
+                              <div style={{ fontWeight: 'bold', marginBottom: '4px', color: 'black' }}>{r.rider_name}</div>
+                              <div style={{ color: '#333', fontStyle: 'italic' }}>{r.horse_name}</div>
                             </td>
-                            <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>PENALTY</td>
+                            <td style={{ border: '1px solid black', borderRight: '2px solid black', borderBottom: '1px solid #aaa', padding: '6px', fontSize: '0.75rem', background: '#f5f5f5', textAlign: 'center', color: 'black', fontWeight: 'bold' }}>PENALTY</td>
                             {cols.map(i => (
-                              <td key={`p-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', color: 'red', fontWeight: 'bold', height: '25px' }}>
+                              <td key={`p-${i}`} style={{ border: '1px solid black', borderBottom: '1px solid #aaa', padding: '8px', textAlign: 'center', color: 'black', fontWeight: 'bold', height: '30px' }}>
                                 {scoreObj && !isDqResult && scoreObj.score_data.penalties[i] > 0 ? `-${scoreObj.score_data.penalties[i]}` : ''}
                               </td>
                             ))}
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', color: 'red', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'center', color: 'black', fontWeight: 'bold', fontSize: '1.2rem' }}>
                               {pTotal > 0 ? `-${pTotal}` : ''}
                             </td>
-                            <td rowSpan="2" style={{ border: '2px solid black', padding: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.3rem', color: isDqResult ? 'red' : 'black' }}>
+                            <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'center', fontWeight: '900', fontSize: '1.5rem', color: 'black' }}>
                               {isDqResult ? 'DQ' : (scoreObj ? scoreObj.total_score : '')}
                             </td>
                           </tr>
                           <tr>
-                            <td style={{ border: '1px solid black', padding: '4px', fontSize: '0.7rem', background: '#f9f9f9', textAlign: 'center' }}>SCORE</td>
+                            <td style={{ border: '1px solid black', borderRight: '2px solid black', padding: '6px', fontSize: '0.75rem', background: '#f5f5f5', textAlign: 'center', color: 'black', fontWeight: 'bold' }}>SCORE</td>
                             {cols.map(i => (
-                              <td key={`s-${i}`} style={{ border: '1px solid black', padding: '6px', textAlign: 'center', height: '25px' }}>
+                              <td key={`s-${i}`} style={{ border: '1px solid black', padding: '8px', textAlign: 'center', height: '30px', color: 'black' }}>
                                 {scoreObj && !isDqResult && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj && !isDqResult ? '0' : '')}
                               </td>
                             ))}
@@ -986,31 +982,12 @@ export default function Home() {
                   </tbody>
                 </table>
 
-                <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '3px solid black', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '3px solid black', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{flex: 1}}>
-                    <p style={{ margin: '0 0 5px 0', fontSize: '0.9rem', color: '#555' }}>Digitálně podepsal / Judge's signature:</p>
-                    <h3 style={{ margin: '0 0 5px 0' }}>{signatureObj ? signatureObj.judge_name : '_______________________'}</h3>
-                    <p style={{ margin: '0', fontSize: '0.9rem' }}>Dne: {signatureObj ? new Date(signatureObj.scored_at).toLocaleString('cs-CZ') : '___________________'}</p>
+                    <p style={{ margin: '0 0 5px 0', fontSize: '1rem', color: 'black' }}><strong>Podpis rozhodčího / Judge's signature:</strong></p>
+                    <h3 style={{ margin: '10px 0 5px 0', color: 'black' }}>{signatureObj ? signatureObj.judge_name : '____________________________________'}</h3>
+                    <p style={{ margin: '0', fontSize: '0.9rem', color: 'black' }}>Dne: {signatureObj ? new Date(signatureObj.scored_at).toLocaleString('cs-CZ') : '___________________'}</p>
                   </div>
-                  
-                  {scoredRiders.length > 0 && (
-                    <div style={{ flex: 1, textAlign: 'right', background: '#f5f5f5', padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }}>
-                      <p style={{ margin: '0 0 5px 0', fontSize: '0.8rem', fontWeight: 'bold', color: '#333' }}>KRYPTOGRAFICKÉ OTISKY HODNOCENÍ (SHA-256)</p>
-                      <ul style={{ margin: '0', padding: '0', listStyleType: 'none', fontSize: '0.65rem', color: '#666', textAlign: 'left', display: 'inline-block' }}>
-                        {scoredRiders.map(r => {
-                          const sObj = scoresheets.find(s => s.participant_id === r.id);
-                          return (
-                            <li key={r.id} style={{marginBottom: '3px'}}>
-                              <strong>St. č. {r.start_number}:</strong> {sObj.signature_hash.substring(0, 20)}...
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-                <div className="footer-branding" style={{ position: 'absolute', bottom: '0', left: '0', width: '100%', textAlign: 'center', fontSize: '0.85rem', color: '#888', fontWeight: 'bold', borderTop: '1px solid #eee', paddingTop: '10px' }}>
-                  made by Vosa systems
                 </div>
               </div>
             )
@@ -1045,30 +1022,30 @@ export default function Home() {
     return (
       <div className="print-area">
          <div className="page-break" style={{ position: 'relative', minHeight: '95vh', paddingBottom: '70px', marginBottom: '40px' }}>
-            <div style={{ textAlign: 'center', marginBottom: '20px', borderBottom: '2px solid black', paddingBottom: '10px' }}>
-              <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.5rem' }}>{eventObj.name}</h2>
-              <h3 style={{ margin: '5px 0 0 0', color: '#444' }}>VETERINÁRNÍ PŘEJÍMKA</h3>
+            <div style={{ textAlign: 'center', marginBottom: '30px', borderBottom: '3px solid black', paddingBottom: '15px' }}>
+              <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.8rem', color: 'black' }}>{eventObj.name}</h2>
+              <h3 style={{ margin: '5px 0 0 0', color: 'black', fontSize: '1.4rem' }}>VETERINÁRNÍ PŘEJÍMKA</h3>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1.1rem', border: '2px solid black' }}>
                <thead>
-                  <tr>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'center', width: '60px'}}>St. č.</th>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'left'}}>Jméno koně</th>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'center', width: '80px'}}>Rok nar.</th>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'center'}}>Průkaz / ID</th>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'left'}}>Jezdec</th>
-                     <th style={{border: '2px solid black', padding: '10px', textAlign: 'center', width: '150px'}}>Kontrola (Krev/Očk.)</th>
+                  <tr style={{ background: '#e0e0e0' }}>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '80px', color: 'black'}}>St. č.</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jméno koně</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '100px', color: 'black'}}>Rok nar.</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>Průkaz / ID</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jezdec</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '180px', color: 'black'}}>Kontrola<br/>(Krev/Očkování)</th>
                   </tr>
                </thead>
                <tbody>
                   {sortedHorses.map((h, i) => (
                      <tr key={i}>
-                        <td style={{border: '1px solid black', padding: '10px', textAlign: 'center', fontWeight: 'bold'}}>{h.startNumber}</td>
-                        <td style={{border: '1px solid black', padding: '10px', fontWeight: 'bold'}}>{h.horseName}</td>
-                        <td style={{border: '1px solid black', padding: '10px', textAlign: 'center'}}>{h.birthYear}</td>
-                        <td style={{border: '1px solid black', padding: '10px', textAlign: 'center'}}>{h.idNum}</td>
-                        <td style={{border: '1px solid black', padding: '10px'}}>{h.riderName}</td>
-                        <td style={{border: '1px solid black', padding: '10px'}}></td>
+                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', fontWeight: '900', fontSize: '1.2rem', color: 'black'}}>{h.startNumber}</td>
+                        <td style={{border: '1px solid black', padding: '12px', fontWeight: 'bold', color: 'black'}}>{h.horseName}</td>
+                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.birthYear}</td>
+                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.idNum}</td>
+                        <td style={{border: '1px solid black', padding: '12px', color: 'black'}}>{h.riderName}</td>
+                        <td style={{border: '1px solid black', padding: '12px'}}></td>
                      </tr>
                   ))}
                </tbody>
@@ -1080,13 +1057,27 @@ export default function Home() {
 if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
 
   const effectiveRole = simulatedRole || profile?.role || 'player';
-  const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))] : [];
-  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
+  const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs')) : [];
+  const judgeStartList = judgeEvent && judgeDiscipline ? allRegistrations.filter(r => r.event_id === judgeEvent && r.discipline === judgeDiscipline).sort((a, b) => {
+    if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+    if (a.draw_order !== null) return -1;
+    if (b.draw_order !== null) return 1;
+    return a.start_number - b.start_number;
+  }) : [];
 
   const lockedEvent = events.find(ev => ev.is_locked);
   const speakerEventId = lockedEvent?.id;
   const speakerDiscipline = lockedEvent?.active_discipline;
-  const speakerStartList = speakerEventId && speakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerDiscipline).sort((a, b) => a.draw_order - b.draw_order) : [];
+  
+  // SPÍKR: "Mrazák" na disciplínu, aby mu nezmizela při vyhlašování
+  const activeSpeakerDiscipline = showSpeakerResults && speakerFrozenDiscipline ? speakerFrozenDiscipline : speakerDiscipline;
+  
+  const speakerStartList = speakerEventId && activeSpeakerDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === activeSpeakerDiscipline).sort((a, b) => {
+    if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+    if (a.draw_order !== null) return -1;
+    if (b.draw_order !== null) return 1;
+    return a.start_number - b.start_number;
+  }) : [];
 
   const rulesData = rulesSelectedEvent ? events.find(e => e.id === rulesSelectedEvent)?.propositions : null;
 
@@ -1114,7 +1105,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
               {events.find(e => e.id === rulesSelectedEvent)?.patterns_url && (
                 <div style={{marginBottom: '20px', padding: '15px', background: '#e3f2fd', borderRadius: '8px', border: '1px solid #90caf9'}}>
                   <strong>🔗 Odkaz na úlohy (Patterny): </strong>
-                  <a href={events.find(e => e.id === rulesSelectedEvent).patterns_url} target="_blank" rel="noopener noreferrer" style={{color: '#0288d1', fontWeight: 'bold'}}>Otevřít úlohy ke stažení</a>
+                  <a href={events.find(e => e.id === rulesSelectedEvent).patterns_url} target="_blank" rel="noopener noreferrer" style={{color: '#0288d1', fontWeight: 'bold', textDecoration: 'underline'}}>Otevřít úlohy ke stažení</a>
                 </div>
               )}
               {rulesData || 'Pro tento závod nejsou zadány žádné propozice.'}
@@ -1139,6 +1130,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
           input, select { border: none !important; appearance: none !important; font-weight: bold; background: transparent !important; }
           .print-input::placeholder { color: transparent !important; }
           .footer-branding { position: fixed !important; bottom: 0 !important; }
+          .startlist-table th, .startlist-table td { border: 2px solid black !important; padding: 8px !important; }
         }
       `}</style>
 
@@ -1448,33 +1440,38 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                             {/* Rozdělená startka podle disciplín */}
                             {(() => {
                               const evRegs = allRegistrations.filter(r => r.event_id === adminSelectedEvent);
-                              const evDisciplines = [...new Set(evRegs.map(r => r.discipline))];
+                              const evDisciplines = [...new Set(evRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
                               
                               if (evDisciplines.length === 0) return <p>Žádné přihlášky.</p>;
 
                               return evDisciplines.map(disc => {
-                                const riders = evRegs.filter(r => r.discipline === disc).sort((a,b) => a.draw_order - b.draw_order);
+                                const riders = evRegs.filter(r => r.discipline === disc).sort((a, b) => {
+                                  if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+                                  if (a.draw_order !== null) return -1;
+                                  if (b.draw_order !== null) return 1;
+                                  return a.start_number - b.start_number;
+                                });
                                 return (
                                   <div key={disc} style={{marginBottom: '30px'}} className="page-break">
                                     <h2 style={{borderBottom: '3px solid #5d4037', color: '#5d4037', paddingBottom: '10px', textTransform: 'uppercase'}}>{disc}</h2>
-                                    <table style={{width: '100%', fontSize: '1rem', borderCollapse: 'collapse'}}>
+                                    <table className="startlist-table" style={{width: '100%', fontSize: '1rem', borderCollapse: 'collapse', border: '2px solid black'}}>
                                       <thead>
                                         <tr style={{background: '#eee', textAlign: 'left'}}>
-                                          <th style={{padding: '8px', width: '60px', border: '1px solid #ccc'}}>Draw</th>
-                                          <th style={{padding: '8px', width: '60px', border: '1px solid #ccc'}}>Číslo</th>
-                                          <th style={{padding: '8px', border: '1px solid #ccc'}}>Jezdec</th>
-                                          <th style={{padding: '8px', border: '1px solid #ccc'}}>Kůň</th>
-                                          <th className="no-print" style={{padding: '8px', border: '1px solid #ccc'}}>Poznámka</th>
+                                          <th style={{padding: '8px', width: '60px', border: '2px solid black'}}>Draw</th>
+                                          <th style={{padding: '8px', width: '60px', border: '2px solid black'}}>Číslo</th>
+                                          <th style={{padding: '8px', border: '2px solid black'}}>Jezdec</th>
+                                          <th style={{padding: '8px', border: '2px solid black'}}>Kůň</th>
+                                          <th className="no-print" style={{padding: '8px', border: '2px solid black'}}>Poznámka</th>
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {riders.map((r, i) => (
                                           <tr key={i} style={{borderBottom: '1px solid #ccc'}}>
-                                            <td style={{padding: '8px', border: '1px solid #ccc'}}><strong>{r.draw_order || ''}</strong></td>
-                                            <td style={{padding: '8px', border: '1px solid #ccc', fontSize: '1.2rem'}}><strong>{r.start_number}</strong></td>
-                                            <td style={{padding: '8px', border: '1px solid #ccc'}}>{r.rider_name}</td>
-                                            <td style={{padding: '8px', border: '1px solid #ccc'}}>{r.horse_name}</td>
-                                            <td className="no-print" style={{padding: '8px', border: '1px solid #ccc'}}>
+                                            <td style={{padding: '8px', border: '2px solid black'}}><strong>{r.draw_order || ''}</strong></td>
+                                            <td style={{padding: '8px', border: '2px solid black', fontSize: '1.2rem'}}><strong>{r.start_number}</strong></td>
+                                            <td style={{padding: '8px', border: '2px solid black'}}>{r.rider_name}</td>
+                                            <td style={{padding: '8px', border: '2px solid black'}}>{r.horse_name}</td>
+                                            <td className="no-print" style={{padding: '8px', border: '2px solid black'}}>
                                               <input 
                                                 type="text" 
                                                 defaultValue={r.payment_note || ''} 
@@ -1866,7 +1863,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                        <span style={{fontSize: '1.2rem', whiteSpace: 'pre-wrap'}}>{lockedEvent?.schedule || 'Plán nebyl zadán'}</span>
                      </div>
 
-                     {!speakerDiscipline ? (
+                     {!activeSpeakerDiscipline ? (
                        <div style={{padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '2px dashed #ccc'}}>
                          <h2>Čeká se na rozhodčího...</h2>
                          <p>Zde se automaticky zobrazí listina, jakmile rozhodčí vybere disciplínu.</p>
@@ -1874,9 +1871,19 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                      ) : (
                        <div style={{marginTop: '30px'}}>
                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #5d4037', paddingBottom: '15px'}}>
-                            <h2 style={{fontSize: '2rem', margin: 0, color: '#5d4037'}}>ARÉNA: {speakerDiscipline}</h2>
-                            <button onClick={() => setShowSpeakerResults(!showSpeakerResults)} style={{...styles.btnSave, background: showSpeakerResults ? '#e65100' : '#4caf50', padding: '10px 20px', fontSize: '1.1rem'}}>
-                              {showSpeakerResults ? '🔙 Zpět na Startku' : '🏆 Zobrazit výsledky k vyhlášení'}
+                            <h2 style={{fontSize: '2rem', margin: 0, color: '#5d4037'}}>ARÉNA: {activeSpeakerDiscipline}</h2>
+                            <button onClick={() => {
+                              if (!showSpeakerResults) {
+                                // ZAPNUTÍ MRAZÁKU (uložíme aktuální disciplínu a zmrazíme ji pro tisk)
+                                setSpeakerFrozenDiscipline(speakerDiscipline);
+                                setShowSpeakerResults(true);
+                              } else {
+                                // VYPNUTÍ MRAZÁKU (vrátíme se k tomu, co má naklikáno rozhodčí)
+                                setSpeakerFrozenDiscipline(null);
+                                setShowSpeakerResults(false);
+                              }
+                            }} style={{...styles.btnSave, background: showSpeakerResults ? '#e65100' : '#4caf50', padding: '10px 20px', fontSize: '1.1rem'}}>
+                              {showSpeakerResults ? '🔙 Zpět na Startku (Rozmrazit)' : '🏆 Zobrazit výsledky a zmrazit tabulku'}
                             </button>
                          </div>
 
@@ -1885,7 +1892,8 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                               <thead>
                                 <tr style={{background: '#fff3e0', textAlign: 'left', fontSize: '1.2rem'}}>
                                   <th style={{padding: '15px'}}>Pořadí</th>
-                                  <th style={{padding: '15px'}}>Jezdec</th>
+                                  <th style={{padding: '15px'}}>St. č.</th>
+                           <th style={{padding: '15px'}}>Jezdec</th>
                                   <th style={{padding: '15px'}}>Kůň</th>
                                   <th style={{padding: '15px', textAlign: 'right'}}>Skóre</th>
                                 </tr>
@@ -1900,12 +1908,18 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                                      })
                                      .filter(r => r.totalScore !== -999)
                                      .sort((a, b) => {
+                                       // ABSOLUTNÍ PŘEDNOST: Políčko Draw
+                                       if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+                                       if (a.draw_order !== null) return -1;
+                                       if (b.draw_order !== null) return 1;
+
+                                       // Pokud nemají Draw, rozhoduje skóre
                                        if (a.totalScore === 'DQ') return 1;
                                        if (b.totalScore === 'DQ') return -1;
                                        return b.totalScore - a.totalScore;
                                      });
                                      
-                                   if (scoredRiders.length === 0) return <tr><td colSpan="4" style={{padding: '20px', textAlign: 'center'}}>Zatím nikdo nedojel.</td></tr>;
+                                   if (scoredRiders.length === 0) return <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center'}}>Zatím nikdo nedojel.</td></tr>;
 
                                    return scoredRiders.map((r, index) => {
                                       let medal = '';
@@ -1917,7 +1931,8 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                                       const scoreText = r.totalScore === 'DQ' ? 'DQ' : `${r.totalScore} b.`;
                                       return (
                                         <tr key={r.id} style={{borderBottom: '2px solid #eee', fontSize: '1.5rem', background: '#fff'}}>
-                                          <td style={{padding: '15px', fontWeight: 'bold'}}>{medal} {index + 1}.</td>
+                                          <td style={{padding: '15px', fontWeight: 'bold'}}>{medal} {index + 1}. {r.draw_order ? `(Draw ${r.draw_order})` : ''}</td>
+                                          <td style={{padding: '15px', fontWeight: '900', color: '#5d4037'}}>{r.start_number}</td>
                                           <td style={{padding: '15px'}}>{r.rider_name}</td>
                                           <td style={{padding: '15px'}}>{r.horse_name}</td>
                                           <td style={{padding: '15px', textAlign: 'right', fontWeight: 'bold', color: r.totalScore === 'DQ' ? 'red' : '#2e7d32'}}>{scoreText}</td>
@@ -2106,7 +2121,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                             </div>
                             {d.pattern_url && (
                               <div style={{padding: '0 12px 12px 12px'}}>
-                                <a href={d.pattern_url} target="_blank" rel="noreferrer" style={{color: '#0288d1', fontSize: '0.85rem'}}>📄 Zobrazit úlohu k této disciplíně</a>
+                                <a href={d.pattern_url} target="_blank" rel="noopener noreferrer" style={{color: '#0288d1', fontSize: '0.85rem'}}>📄 Zobrazit úlohu k této disciplíně</a>
                               </div>
                             )}
                           </div>
