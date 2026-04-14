@@ -1109,10 +1109,19 @@ export default function Home() {
 // ==========================================
 // ============ ZAČÁTEK ČÁSTI 5 ============
 // ==========================================
-  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
-
   const effectiveRole = simulatedRole || profile?.role || 'player';
   const lockedEvent = events.find(ev => ev.is_locked);
+  const speakerEventId = lockedEvent?.id;
+  const speakerLiveDiscipline = lockedEvent?.active_discipline;
+
+  // OPRAVA: Tento Hook musí být VŽDY před if(loading), jinak React hodí Error 310!
+  useEffect(() => {
+    if (!showSpeakerResults && speakerLiveDiscipline && speakerLiveSelectedDiscipline !== speakerLiveDiscipline) {
+      setSpeakerLiveSelectedDiscipline(speakerLiveDiscipline);
+    }
+  }, [speakerLiveDiscipline, showSpeakerResults, speakerLiveSelectedDiscipline]);
+
+  if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</div>
   
   // ROZHODČÍ: Aktivní disciplíny a listina
   const activeJudgeDisciplines = judgeEvent ? [...new Set(allRegistrations.filter(r => r.event_id === judgeEvent).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs')) : [];
@@ -1123,18 +1132,8 @@ export default function Home() {
     return a.start_number - b.start_number;
   }) : [];
 
-  // SPÍKR: Proměnné a automatická synchronizace
-  const speakerEventId = lockedEvent?.id;
-  const speakerLiveDiscipline = lockedEvent?.active_discipline; // Tohle přichází z DB od rozhodčího
   const allSpeakerDisciplines = speakerEventId ? [...new Set(allRegistrations.filter(r => r.event_id === speakerEventId).map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs')) : [];
   
-  // SYNCHRONIZACE: Pokud spíkr nemá vybráno ručně, vnuť mu to, co jede rozhodčí
-  useEffect(() => {
-    if (!showSpeakerResults && speakerLiveDiscipline && speakerLiveSelectedDiscipline !== speakerLiveDiscipline) {
-      setSpeakerLiveSelectedDiscipline(speakerLiveDiscipline);
-    }
-  }, [speakerLiveDiscipline, showSpeakerResults]);
-
   const speakerLiveList = speakerEventId && speakerLiveSelectedDiscipline ? allRegistrations.filter(r => r.event_id === speakerEventId && r.discipline === speakerLiveSelectedDiscipline).sort((a, b) => {
     if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
     if (a.draw_order !== null) return -1;
