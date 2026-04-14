@@ -193,6 +193,7 @@ export default function Home() {
   // SPÍKR STAVY
   const [showSpeakerResults, setShowSpeakerResults] = useState(false); 
   const [speakerResultDiscipline, setSpeakerResultDiscipline] = useState(''); // Nový stav pro roletku Spíkra
+  const [speakerLiveSelectedDiscipline, setSpeakerLiveSelectedDiscipline] = useState(''); // PŘIDÁNO
 
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [printMode, setPrintMode] = useState(''); 
