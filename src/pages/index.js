@@ -1129,25 +1129,39 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
     <div style={styles.container} onClick={unlockAudio}>
      <style>{`
         @media print {
-          @page { size: portrait; margin: 10mm; }
+          /* Vracíme na výšku a dáváme minimální okraje papíru */
+          @page { size: portrait; margin: 5mm; }
           body, html { background: white !important; color: black !important; margin: 0 !important; padding: 0 !important; width: 100% !important; }
           .no-print { display: none !important; }
           
-          /* TOTO ZABRAŇUJE OBRNĚ: Zrušíme mřížku, která to tlačila doleva */
+          /* Zrušení mřížky, aby to neuhýbalo do strany (léčí to tu "obrnu") */
           div[style*="display: grid"] { display: block !important; }
           
-          /* Roztáhne tiskovou zónu na 100 % papíru a vycentruje */
           .print-area { width: 100% !important; max-width: 100% !important; margin: 0 auto !important; padding: 0 !important; display: block !important; }
           .page-break { page-break-after: always !important; position: relative !important; width: 100% !important; margin: 0 auto !important; }
           
-          /* Vystředění a roztažení samotných tabulek */
-          table { width: 100% !important; max-width: 1000px !important; margin: 0 auto !important; }
+          /* ABSOLUTNÍ OCHRANA PROTI ROZTAŽENÍ TABULKY */
+          table { width: 100% !important; max-width: 100% !important; border-collapse: collapse !important; }
+          
+          /* MAGICKÉ ZMENŠENÍ: Prohlížeč zmenší celý scoresheet na 70 % velikosti */
+          .wrc-scoresheet { zoom: 0.70 !important; }
+          
+          /* Osekání všech vnitřních mezer na absolutní minimum */
+          .wrc-scoresheet th, .wrc-scoresheet td { 
+            padding: 2px 1px !important; 
+            font-size: 0.8rem !important; 
+          }
+          
+          /* Jména jezdců mohou být menší a nahuštěnější, ať nezabírají místo manévrům */
+          .wrc-scoresheet td:nth-child(3) div { font-size: 0.8rem !important; line-height: 1.1 !important; }
           
           .wrc-scoresheet th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           input, select { border: none !important; appearance: none !important; font-weight: bold; background: transparent !important; }
           .print-input::placeholder { color: transparent !important; }
-          .footer-branding { position: fixed !important; bottom: 0 !important; left: 0 !important; width: 100% !important; text-align: center !important; }
-          .startlist-table th, .startlist-table td { border: 2px solid black !important; padding: 10px !important; }
+          .footer-branding { position: fixed !important; bottom: 0 !important; left: 0 !important; width: 100% !important; text-align: center !important; font-size: 0.7rem !important;}
+          
+          /* Startka na výšku se vejde dobře, jen jí dáme normální okraje */
+          .startlist-table th, .startlist-table td { border: 2px solid black !important; padding: 6px !important; font-size: 0.95rem !important; }
         }
       `}</style>
 
@@ -1394,7 +1408,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                   </div>
                 )}
 
-                {adminSelectedEvent === 'accounts' && effectiveRole === 'superadmin' && (
+                {!adminSelectedEvent && adminTab === 'accounts' && effectiveRole === 'superadmin' && (
                   <div className="no-print">
                     <div style={{background: '#fff3e0', padding: '20px', borderRadius: '8px', border: '2px solid #e65100', margin: '20px 0'}}>
                       <h3 style={{color: '#e65100', marginTop: 0}}>Nové uživatelské přístupy</h3>
@@ -1412,7 +1426,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                   </div>
                 )}
 
-                {adminSelectedEvent === 'telegram' && (
+                {!adminSelectedEvent && adminTab === 'telegram' && (
                   <div className="no-print">
                     <div style={{background: '#e3f2fd', padding: '20px', borderRadius: '8px', border: '2px solid #0288d1', textAlign: 'center'}}>
                       <h3 style={{color: '#0288d1', marginTop: 0}}>📢 Manuální odeslání zprávy do kanálu</h3>
@@ -1599,7 +1613,7 @@ if (loading) return <div style={styles.loader}>Načítám Pod Humprechtem...</di
                   </div>
                 )}
 
-                {effectiveRole === 'superadmin' && !adminSelectedEvent && (
+                {effectiveRole === 'superadmin' && !adminSelectedEvent && adminTab === 'settings' && (
                   <div className="no-print" style={{...styles.adminSection, border: '2px solid #000', background: '#e0e0e0', marginTop: '20px'}}>
                     <h4 style={{margin: '0 0 10px 0'}}>Logy systému</h4>
                     <div style={{maxHeight: '300px', overflowY: 'auto', background: '#fff', padding: '10px'}}>
