@@ -1226,6 +1226,8 @@ export default function Home() {
           .page-break { page-break-after: always !important; position: relative !important; width: 100% !important; margin: 0 auto !important; padding-top: 10px !important; }
           
           .wrc-scoresheet { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin: 0 auto !important; }
+          
+          /* Základní malé písmo pro manévry, aby se jich tam vešlo 20 */
           .wrc-scoresheet th, .wrc-scoresheet td { 
             border: 1px solid black !important; 
             padding: 3px 1px !important; 
@@ -1233,6 +1235,14 @@ export default function Home() {
             text-align: center;
             overflow: hidden !important;
             word-wrap: break-word !important; 
+          }
+          
+          /* KOUZLO: Zvětšení čísel v hlavních rámečcích (Draw, EXH, Penalty Total, Final Score) */
+          .wrc-scoresheet td[rowspan="2"]:nth-child(1),
+          .wrc-scoresheet td[rowspan="2"]:nth-child(2),
+          .wrc-scoresheet td[rowspan="2"]:nth-last-child(2),
+          .wrc-scoresheet td[rowspan="2"]:nth-last-child(1) {
+            font-size: 16px !important;
           }
           
           .wrc-scoresheet th:nth-child(1), .wrc-scoresheet td:nth-child(1) { width: 3.5%; } 
