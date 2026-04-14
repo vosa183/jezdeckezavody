@@ -1242,7 +1242,7 @@ export default function Home() {
           .wrc-scoresheet td[rowspan="2"]:nth-child(2),
           .wrc-scoresheet td[rowspan="2"]:nth-last-child(2),
           .wrc-scoresheet td[rowspan="2"]:nth-last-child(1) {
-            font-size: 16px !important;
+            font-size: 20px !important;
           }
           
           .wrc-scoresheet th:nth-child(1), .wrc-scoresheet td:nth-child(1) { width: 3.5%; } 
