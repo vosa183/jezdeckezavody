@@ -2335,7 +2335,7 @@ const styles = {
   logo: { width: '120px', borderRadius: '50%', border: '4px solid #5d4037' },
   title: { color: '#5d4037', margin: '10px 0 0 0' },
   subtitle: { color: '#8d6e63', fontSize: '0.8rem', letterSpacing: '2px', fontWeight: 'bold' },
-  mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(250px, 1fr) 2.5fr', gap: '20px', maxWidth: '1100px', margin: '0 auto' },
+  mainGrid: { display: 'grid', gridTemplateColumns: '250px 1fr', gap: '20px', maxWidth: '98%', margin: '0 auto' },
   card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: '100%', width: '100%' },
   sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content' },
   adminSection: { padding: '15px', border: '1px solid #ddd', borderRadius: '8px', marginBottom: '15px', background: '#fafafa' },
