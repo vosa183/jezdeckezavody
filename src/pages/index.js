@@ -1114,7 +1114,6 @@ export default function Home() {
   const speakerEventId = lockedEvent?.id;
   const speakerLiveDiscipline = lockedEvent?.active_discipline;
 
-  // OPRAVA: Tento Hook musí být VŽDY před if(loading), jinak React hodí Error 310!
   useEffect(() => {
     if (!showSpeakerResults && speakerLiveDiscipline && speakerLiveSelectedDiscipline !== speakerLiveDiscipline) {
       setSpeakerLiveSelectedDiscipline(speakerLiveDiscipline);
@@ -1145,17 +1144,21 @@ export default function Home() {
 
   const rulesData = rulesSelectedEvent ? events.find(e => e.id === rulesSelectedEvent)?.propositions : null;
 
+  // Společná vrchní navigace
+  const renderTopNav = () => (
+    <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px', flexWrap: 'wrap' }}>
+      <button onClick={() => setCurrentTab('app')} style={{ background: currentTab === 'app' ? '#ffb300' : 'transparent', color: currentTab === 'app' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
+      <button onClick={() => setCurrentTab('rules')} style={{ background: currentTab === 'rules' ? '#ffb300' : 'transparent', color: currentTab === 'rules' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
+      <button onClick={() => setCurrentTab('patterns')} style={{ background: currentTab === 'patterns' ? '#ffb300' : 'transparent', color: currentTab === 'patterns' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🗺️ Úlohy (Patterny)</button>
+    </div>
+  );
+
   if (currentTab === 'rules' && user) {
     return (
       <div style={styles.container}>
-        <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
-          <button onClick={() => setCurrentTab('app')} style={{ background: 'transparent', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Zpět do Aplikace</button>
-          <button onClick={() => setCurrentTab('rules')} style={{ background: '#ffb300', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
-        </div>
-        
+        {renderTopNav()}
         <div className="no-print" style={styles.card}>
           <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>PROPOZICE A PRAVIDLA</h2>
-          
           <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '30px', textAlign: 'center'}}>
             <label style={{fontWeight: 'bold', marginRight: '10px'}}>Zobrazit propozice pro závod: </label>
             <select value={rulesSelectedEvent} onChange={e => setRulesSelectedEvent(e.target.value)} style={{...styles.inputSmall, width: '300px', display: 'inline-block'}}>
@@ -1163,16 +1166,44 @@ export default function Home() {
               {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
             </select>
           </div>
-
           {rulesSelectedEvent ? (
             <div style={{fontSize: '1.1rem', whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-              {events.find(e => e.id === rulesSelectedEvent)?.patterns_url && (
-                <div style={{marginBottom: '20px', padding: '15px', background: '#e3f2fd', borderRadius: '8px', border: '1px solid #90caf9'}}>
-                  <strong>🔗 Odkaz na úlohy (Patterny): </strong>
-                  <a href={events.find(e => e.id === rulesSelectedEvent).patterns_url} target="_blank" rel="noopener noreferrer" style={{color: '#0288d1', fontWeight: 'bold', textDecoration: 'underline'}}>Otevřít úlohy ke stažení</a>
-                </div>
-              )}
               {rulesData || 'Pro tento závod nejsou zadány žádné propozice.'}
+            </div>
+          ) : (
+            <p style={{textAlign: 'center', color: '#666', fontSize: '1.2rem'}}>Prosím, vyberte závod z nabídky výše.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // NOVÁ ZÁLOŽKA PRO ÚLOHY
+  if (currentTab === 'patterns' && user) {
+    const selectedEv = events.find(e => e.id === rulesSelectedEvent);
+    return (
+      <div style={styles.container}>
+        {renderTopNav()}
+        <div className="no-print" style={styles.card}>
+          <h2 style={{color: '#5d4037', textAlign: 'center', marginTop: 0}}>ÚLOHY K ZÁVODŮM (PATTERNY)</h2>
+          <div style={{background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '30px', textAlign: 'center'}}>
+            <label style={{fontWeight: 'bold', marginRight: '10px'}}>Vyberte závod: </label>
+            <select value={rulesSelectedEvent} onChange={e => setRulesSelectedEvent(e.target.value)} style={{...styles.inputSmall, width: '300px', display: 'inline-block'}}>
+              <option value="">-- Vyberte závod --</option>
+              {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            </select>
+          </div>
+          {rulesSelectedEvent ? (
+            <div style={{textAlign: 'center', padding: '40px', background: '#e3f2fd', borderRadius: '8px', border: '2px solid #0288d1', maxWidth: '600px', margin: '0 auto'}}>
+              {selectedEv?.patterns_url ? (
+                <>
+                  <h3 style={{color: '#0288d1', marginTop: 0, fontSize: '1.8rem'}}>🗺️ Úlohy jsou k dispozici</h3>
+                  <p style={{fontSize: '1.2rem'}}>Kliknutím na tlačítko níže si zobrazíte a stáhnete oficiální úlohy pro tento závod.</p>
+                  <a href={selectedEv.patterns_url} target="_blank" rel="noopener noreferrer" style={{...styles.btnSave, background: '#0288d1', display: 'inline-block', textDecoration: 'none', fontSize: '1.2rem', padding: '15px 30px', marginTop: '15px'}}>Otevřít úlohy</a>
+                </>
+              ) : (
+                <p style={{fontSize: '1.2rem', color: '#d32f2f', margin: 0, fontWeight: 'bold'}}>Pro tento závod zatím nebyly nahrány žádné úlohy.</p>
+              )}
             </div>
           ) : (
             <p style={{textAlign: 'center', color: '#666', fontSize: '1.2rem'}}>Prosím, vyberte závod z nabídky výše.</p>
@@ -1218,12 +1249,7 @@ export default function Home() {
         }
       `}</style>
 
-      {user && (
-        <div className="no-print" style={{ display: 'flex', background: '#3e2723', padding: '10px 20px', gap: '15px', marginBottom: '20px', borderRadius: '8px' }}>
-          <button onClick={() => setCurrentTab('app')} style={{ background: currentTab === 'app' ? '#ffb300' : 'transparent', color: currentTab === 'app' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>🐎 Závodní Portál</button>
-          <button onClick={() => setCurrentTab('rules')} style={{ background: currentTab === 'rules' ? '#ffb300' : 'transparent', color: currentTab === 'rules' ? '#000' : '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.1rem' }}>📜 Propozice a Pravidla</button>
-        </div>
-      )}
+      {user && renderTopNav()}
 
       {user && ['admin', 'superadmin', 'judge', 'speaker'].includes(effectiveRole) && (
         <div className="no-print" style={{ backgroundColor: '#fff9c4', border: '4px solid #fbc02d', borderRadius: '12px', padding: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1273,7 +1299,7 @@ export default function Home() {
           </button>
         </div>
       ) : (
-        <div style={effectiveRole === 'player' ? {maxWidth: '900px', margin: '0 auto'} : styles.mainGrid}>
+        <div style={effectiveRole === 'player' ? {maxWidth: '1200px', width: '100%', margin: '0 auto'} : styles.mainGrid}>
           
           {effectiveRole !== 'player' && (
             <div className="no-print" style={styles.sideCard}>
@@ -1705,7 +1731,7 @@ export default function Home() {
                 <div className={printMode === 'scoresheets' ? 'no-print' : 'print-area'}>
                   {!evaluatingParticipant && (
                     <div>
-                      <label style={styles.label}>Vyberte uzamčený závod k hodnocení:</label>
+                      <label style={styles.label}>Vyberte uzamčen závod k hodnocení:</label>
                       <select style={styles.input} value={judgeEvent} onChange={e => { setJudgeEvent(e.target.value); handleJudgeDisciplineChange(e.target.value, ''); }}>
                         <option value="">-- Zvolte závod --</option>
                         {events.filter(ev => ev.is_locked).map(ev => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
@@ -2328,17 +2354,22 @@ export default function Home() {
 
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif' },
-  superAdminBar: { background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px' },
+  superAdminBar: { background: '#000', color: '#fff', padding: '10px', display: 'flex', gap: '10px', alignItems: 'center', borderRadius: '8px', marginBottom: '20px', flexWrap: 'wrap' },
   tab: { background: '#333', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', whiteSpace: 'nowrap' },
   activeTab: { background: '#4caf50', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.85rem', whiteSpace: 'nowrap' },
   brandHeader: { textAlign: 'center', marginBottom: '20px' },
   logo: { width: '120px', borderRadius: '50%', border: '4px solid #5d4037' },
   title: { color: '#5d4037', margin: '10px 0 0 0' },
   subtitle: { color: '#8d6e63', fontSize: '0.8rem', letterSpacing: '2px', fontWeight: 'bold' },
-  mainGrid: { display: 'grid', gridTemplateColumns: '250px 1fr', gap: '20px', maxWidth: '98%', margin: '0 auto' },
-  card: { backgroundColor: 'white', padding: '25px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', margin: '0 auto', maxWidth: '100%', width: '100%' },
-  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content' },
-  adminSection: { padding: '15px', border: '1px solid #ddd', borderRadius: '8px', marginBottom: '15px', background: '#fafafa' },
+  
+  /* KOUZLO ZDE: Široký layout pro velké monitory, fixní levý panel 280px */
+  mainGrid: { display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: '30px', width: '100%', maxWidth: '1600px', margin: '0 auto' },
+  
+  /* boxSizing zajistí, že padding neroztrhne kartu do boku */
+  card: { backgroundColor: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', width: '100%', boxSizing: 'border-box', overflowX: 'auto' },
+  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', height: 'fit-content', width: '100%', boxSizing: 'border-box' },
+  adminSection: { padding: '15px', border: '1px solid #ddd', borderRadius: '8px', marginBottom: '15px', background: '#fafafa', overflowX: 'auto', width: '100%', boxSizing: 'border-box' },
+  
   input: { width: '100%', padding: '12px', margin: '8px 0', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' },
   inputSmall: { width: '100%', padding: '10px', margin: '5px 0', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' },
   label: { fontSize: '0.9rem', fontWeight: 'bold', color: '#5d4037', display: 'block', marginTop: '15px' },
