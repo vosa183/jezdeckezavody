@@ -891,7 +891,6 @@ export default function Home() {
   };
 
   const saveScore = async () => {
-    // Vypočítáme vždy reálné skóre. OP a DQ se řeší vizuálně, ale body zůstanou v databázi zachované.
     const total = calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores, maneuverNames: maneuverNames, disqualification: disqualification };
     
@@ -1076,11 +1075,8 @@ export default function Home() {
         const ownerName = ownerProfile ? ownerProfile.full_name : 'Neznámý';
 
         uniqueHorsesMap.set(r.horse_name, {
-           startNumber: r.start_number,
            horseName: r.horse_name,
-           riderName: r.rider_name,
            ownerName: ownerName,
-           birthYear: hDetail?.birth_year || '-',
            idNum: hDetail?.horse_id_number || '-'
         });
       }
@@ -1095,28 +1091,22 @@ export default function Home() {
               <h2 style={{ margin: '0', textTransform: 'uppercase', fontSize: '1.8rem', color: 'black' }}>{eventObj.name}</h2>
               <h3 style={{ margin: '5px 0 0 0', color: 'black', fontSize: '1.4rem' }}>VETERINÁRNÍ PŘEJÍMKA</h3>
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1.1rem', border: '2px solid black' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1.2rem', border: '2px solid black' }}>
                <thead>
                   <tr style={{ background: '#e0e0e0' }}>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '60px', color: 'black'}}>St. č.</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jméno koně</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '80px', color: 'black'}}>Rok nar.</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>Průkaz / ID</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jezdec</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Majitel</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '150px', color: 'black'}}>Kontrola<br/>(Krev/Očk.)</th>
+                     <th style={{border: '2px solid black', padding: '15px', textAlign: 'left', color: 'black'}}>Jméno koně</th>
+                     <th style={{border: '2px solid black', padding: '15px', textAlign: 'center', width: '250px', color: 'black'}}>Průkaz / ID</th>
+                     <th style={{border: '2px solid black', padding: '15px', textAlign: 'left', color: 'black'}}>Majitel</th>
+                     <th style={{border: '2px solid black', padding: '15px', textAlign: 'center', width: '200px', color: 'black'}}>Kontrola<br/>(Krev/Očk.)</th>
                   </tr>
                </thead>
                <tbody>
                   {sortedHorses.map((h, i) => (
                      <tr key={i}>
-                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', fontWeight: '900', fontSize: '1.2rem', color: 'black'}}>{h.startNumber}</td>
-                        <td style={{border: '1px solid black', padding: '12px', fontWeight: 'bold', color: 'black'}}>{h.horseName}</td>
-                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.birthYear}</td>
-                        <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.idNum}</td>
-                        <td style={{border: '1px solid black', padding: '12px', color: 'black'}}>{h.riderName}</td>
-                        <td style={{border: '1px solid black', padding: '12px', color: 'black'}}>{h.ownerName}</td>
-                        <td style={{border: '1px solid black', padding: '12px'}}></td>
+                        <td style={{border: '1px solid black', padding: '15px', fontWeight: 'bold', color: 'black'}}>{h.horseName}</td>
+                        <td style={{border: '1px solid black', padding: '15px', textAlign: 'center', color: 'black', fontFamily: 'monospace', fontSize: '1.1rem'}}>{h.idNum}</td>
+                        <td style={{border: '1px solid black', padding: '15px', color: 'black'}}>{h.ownerName}</td>
+                        <td style={{border: '1px solid black', padding: '15px'}}></td>
                      </tr>
                   ))}
                </tbody>
@@ -1127,7 +1117,6 @@ export default function Home() {
   };
 // ==========================================
 // ============= KONEC ČÁSTI 4 ==============
-// ==========================================
 // ==========================================
 // ============ ZAČÁTEK ČÁSTI 5 ============
 // ==========================================
