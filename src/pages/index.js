@@ -848,14 +848,14 @@ export default function Home() {
     if (existingScore) {
       setManeuverScores(existingScore.score_data.maneuvers || Array(20).fill(0));
       setPenaltyScores(existingScore.score_data.penalties || Array(20).fill(0));
-      setDisqualification(existingScore.score_data.disqualification || null); // OPRAVA: DQ nebo OP
+      setDisqualification(existingScore.score_data.disqualification || null); 
       if (existingScore.score_data.maneuverNames) {
         setManeuverNames(existingScore.score_data.maneuverNames);
       }
     } else {
       setManeuverScores(Array(20).fill(0));
       setPenaltyScores(Array(20).fill(0));
-      setDisqualification(null); // OPRAVA: reset stavu
+      setDisqualification(null); 
       
       if (disciplineManeuverNames[participant.discipline]) {
         setManeuverNames(disciplineManeuverNames[participant.discipline]);
@@ -891,7 +891,8 @@ export default function Home() {
   };
 
   const saveScore = async () => {
-    const total = disqualification ? 0 : calculateTotalScore();
+    // Vypočítáme vždy reálné skóre. OP a DQ se řeší vizuálně, ale body zůstanou v databázi zachované.
+    const total = calculateTotalScore();
     const scoreData = { maneuvers: maneuverScores, penalties: penaltyScores, maneuverNames: maneuverNames, disqualification: disqualification };
     
     setDisciplineManeuverNames(prev => ({...prev, [evaluatingParticipant.discipline]: maneuverNames}));
@@ -991,8 +992,9 @@ export default function Home() {
                     {ridersInDiscipline.map(r => {
                       const scoreObj = scoresheets.find(s => s.participant_id === r.id);
                       const dqStatus = scoreObj?.score_data?.disqualification;
+                      const hideScores = dqStatus === 'DQ'; // U DQ skryjeme manévry, u OP je necháme viditelné
                       const displayFinal = dqStatus ? dqStatus : (scoreObj ? scoreObj.total_score : '');
-                      const pTotal = scoreObj && !dqStatus ? scoreObj.score_data.penalties.reduce((a,b)=> Number(a) + Number(b), 0) : '';
+                      const pTotal = scoreObj && !hideScores ? scoreObj.score_data.penalties.reduce((a,b)=> Number(a) + Number(b), 0) : '';
                       return (
                         <React.Fragment key={r.id}>
                           <tr>
@@ -1005,7 +1007,7 @@ export default function Home() {
                             <td style={{ border: '1px solid black', borderRight: '2px solid black', borderBottom: '1px solid #aaa', padding: '6px', fontSize: '0.75rem', background: '#f5f5f5', textAlign: 'center', color: 'black', fontWeight: 'bold' }}>PENALTY</td>
                             {cols.map(i => (
                               <td key={`p-${i}`} style={{ border: '1px solid black', borderBottom: '1px solid #aaa', padding: '8px', textAlign: 'center', color: 'black', fontWeight: 'bold', height: '30px' }}>
-                                {scoreObj && !dqStatus && scoreObj.score_data.penalties[i] > 0 ? `-${scoreObj.score_data.penalties[i]}` : ''}
+                                {scoreObj && !hideScores && scoreObj.score_data.penalties[i] > 0 ? `-${scoreObj.score_data.penalties[i]}` : ''}
                               </td>
                             ))}
                             <td rowSpan="2" style={{ border: '2px solid black', padding: '10px', textAlign: 'center', color: 'black', fontWeight: 'bold', fontSize: '1.2rem' }}>
@@ -1019,7 +1021,7 @@ export default function Home() {
                             <td style={{ border: '1px solid black', borderRight: '2px solid black', padding: '6px', fontSize: '0.75rem', background: '#f5f5f5', textAlign: 'center', color: 'black', fontWeight: 'bold' }}>SCORE</td>
                             {cols.map(i => (
                               <td key={`s-${i}`} style={{ border: '1px solid black', padding: '8px', textAlign: 'center', height: '30px', color: 'black' }}>
-                                {scoreObj && !dqStatus && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj && !dqStatus ? '0' : '')}
+                                {scoreObj && !hideScores && scoreObj.score_data.maneuvers[i] !== 0 ? (scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i]) : (scoreObj && !hideScores ? '0' : '')}
                               </td>
                             ))}
                           </tr>
@@ -1069,10 +1071,15 @@ export default function Home() {
     eventRegs.forEach(r => {
       if (!uniqueHorsesMap.has(r.horse_name)) {
         const hDetail = allHorses.find(h => h.name === r.horse_name);
+        
+        const ownerProfile = allProfiles.find(p => p.id === hDetail?.owner_id);
+        const ownerName = ownerProfile ? ownerProfile.full_name : 'Neznámý';
+
         uniqueHorsesMap.set(r.horse_name, {
            startNumber: r.start_number,
            horseName: r.horse_name,
            riderName: r.rider_name,
+           ownerName: ownerName,
            birthYear: hDetail?.birth_year || '-',
            idNum: hDetail?.horse_id_number || '-'
         });
@@ -1091,12 +1098,13 @@ export default function Home() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '1.1rem', border: '2px solid black' }}>
                <thead>
                   <tr style={{ background: '#e0e0e0' }}>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '80px', color: 'black'}}>St. č.</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '60px', color: 'black'}}>St. č.</th>
                      <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jméno koně</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '100px', color: 'black'}}>Rok nar.</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '80px', color: 'black'}}>Rok nar.</th>
                      <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>Průkaz / ID</th>
                      <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Jezdec</th>
-                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '180px', color: 'black'}}>Kontrola<br/>(Krev/Očkování)</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'left', color: 'black'}}>Majitel</th>
+                     <th style={{border: '2px solid black', padding: '12px', textAlign: 'center', width: '150px', color: 'black'}}>Kontrola<br/>(Krev/Očk.)</th>
                   </tr>
                </thead>
                <tbody>
@@ -1107,6 +1115,7 @@ export default function Home() {
                         <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.birthYear}</td>
                         <td style={{border: '1px solid black', padding: '12px', textAlign: 'center', color: 'black'}}>{h.idNum}</td>
                         <td style={{border: '1px solid black', padding: '12px', color: 'black'}}>{h.riderName}</td>
+                        <td style={{border: '1px solid black', padding: '12px', color: 'black'}}>{h.ownerName}</td>
                         <td style={{border: '1px solid black', padding: '12px'}}></td>
                      </tr>
                   ))}
