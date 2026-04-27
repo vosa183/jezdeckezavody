@@ -2298,7 +2298,7 @@ export default function Home() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px', background: '#f5f5f5', padding: '15px', borderRadius: '8px' }}>
                         <input type="text" placeholder="Napište jméno koně..." value={newHorseName} onChange={e => setNewHorseName(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63', gridColumn: 'span 2'}} />
                         <input type="number" placeholder="Rok narození (např. 2018)" value={horseBirthYear} onChange={e => setHorseBirthYear(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63'}} />
-                        <input type="text" placeholder="ID koně (číslo průkazu)" value={horseIdNumber} onChange={e => setHorseIdNumber(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63'}} />
+                        <input type="text" placeholder="ID koně (Identifikační číslo)" value={horseIdNumber} onChange={e => setHorseIdNumber(e.target.value)} style={{...styles.input, margin: 0, border: '2px solid #8d6e63'}} />
                       </div>
                     )}
 
