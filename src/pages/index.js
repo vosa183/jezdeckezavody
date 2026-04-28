@@ -1192,6 +1192,10 @@ export default function Home() {
           <p style={{fontSize: '0.85rem', color: '#666', margin: '5px 0'}}>Telefon: {profile?.phone || 'Nevyplněno'}</p>
           <p style={{fontSize: '0.85rem', color: '#666', margin: '5px 0'}}>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
           <p style={{fontSize: '0.85rem', color: '#666', margin: '5px 0'}}>Obec: {profile?.city || 'Nevyplněno'}</p>
+          <p style={{fontSize: '0.85rem', color: '#666', margin: '5px 0'}}>Narození: {profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString('cs-CZ') : 'Nevyplněno'}</p>
+          {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city || !profile?.birth_date ) && (
+            <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
+          )}
           <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
           <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
         </div>
@@ -1438,7 +1442,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* NOVÝ SUPERADMIN DASHBOARD POHLED POD KAPOTU */}
                 {!adminSelectedEvent && adminTab === 'dashboard' && effectiveRole === 'superadmin' && (
                   <div className="no-print" style={{...styles.adminSection, border: '2px solid #1976d2', background: '#e3f2fd', marginTop: '20px'}}>
                     <h3 style={{margin: '0 0 15px 0', color: '#1565c0'}}>📊 Superadmin Dashboard (Pohled pod kapotu)</h3>
@@ -1696,11 +1699,10 @@ export default function Home() {
                   <h3 style={{margin: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
                   <input 
                     type="text" 
-                    placeholder="Jméno skutečného rozhodčího" 
+                    placeholder="Jméno rozhodčího" 
                     value={actualJudgeName} 
                     onChange={(e) => setActualJudgeName(e.target.value)} 
-                    style={{...styles.inputSmall, width: '250px', margin: 0, border: '2px solid #0277bd'}}
-                    title="Toto jméno se bude propisovat na archy pro tisk."
+                    style={{...styles.inputSmall, width: '200px', margin: 0, border: '2px solid #0277bd'}}
                   />
                 </div>
                 
@@ -1725,17 +1727,17 @@ export default function Home() {
                             </div>
                             
                             {judgeDiscipline && (
-                              <div style={{flex: 2, background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #0277bd'}}>
-                                <label style={{...styles.label, marginTop: 0}}>Názvy manévrů (oddělte čárkou, max 20):</label>
+                              <div style={{flex: 2, background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #0277bd', minWidth: '250px'}}>
+                                <label style={{...styles.label, marginTop: 0}}>Názvy manévrů (oddělte čárkou):</label>
                                 <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
                                   <input 
                                     type="text" 
-                                    placeholder="např: Kruh P, Kruh L, Spin, Couvání" 
+                                    placeholder="např: Kruh P, Kruh L, Spin" 
                                     value={maneuversInputString} 
                                     onChange={e => setManeuversInputString(e.target.value)} 
                                     style={{...styles.inputSmall, margin: 0, flex: 1}}
                                   />
-                                  <button onClick={applyManeuversFromString} style={{...styles.btnSave, background: '#0277bd'}}>Nastavit manévry</button>
+                                  <button onClick={applyManeuversFromString} style={{...styles.btnSave, background: '#0277bd'}}>Nastavit</button>
                                 </div>
                               </div>
                             )}
@@ -1877,7 +1879,7 @@ export default function Home() {
                     <div style={{marginTop: '20px'}}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px'}}>
                         <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
-                        <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '8px 12px', width: 'auto'}}>📣 Oznámit konec disciplíny navenek</button>
+                        <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '8px 12px', width: 'auto'}}>📣 Oznámit konec disciplíny</button>
                       </div>
                       <div style={{overflowX: 'auto'}}>
                         <table style={{width: '100%', borderCollapse: 'collapse'}}>
@@ -2108,8 +2110,82 @@ export default function Home() {
               <div className="no-print">
                 <div style={{display: 'flex', gap: '10px', overflowX: 'auto', borderBottom: '2px solid #8d6e63', paddingBottom: '10px', marginBottom: '20px'}}>
                   <button onClick={() => setPlayerTab('main')} style={playerTab === 'main' ? styles.activeTab : styles.tab}>Závody a Přihlášky</button>
+                  <button onClick={() => setPlayerTab('profile')} style={playerTab === 'profile' ? styles.activeTab : styles.tab}>👤 Profil a Koně</button>
                   <button onClick={() => setPlayerTab('telegram')} style={playerTab === 'telegram' ? {...styles.activeTab, background: '#0288d1'} : {...styles.tab, background: '#0288d1'}}>📱 Komunikační Kanál</button>
                 </div>
+
+                {playerTab === 'profile' && (
+                  <div style={{maxWidth: '600px', margin: '0 auto'}}>
+                    <div style={{...styles.adminSection, background: '#fff'}}>
+                      <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
+                      {editMode ? (
+                        <form onSubmit={updateProfile}>
+                          <input style={styles.inputSmall} placeholder="Jméno a příjmení" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} required/>
+                          <input style={styles.inputSmall} type="email" placeholder="Email" value={profile?.email || user?.email || ''} onChange={e => setProfile({...profile, email: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Telefon" value={profile?.phone || ''} onChange={e => setProfile({...profile, phone: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Číslo hospodářství" value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} required/>
+                          <input style={styles.inputSmall} placeholder="Obec" value={profile?.city || ''} onChange={e => setProfile({...profile, city: e.target.value})} required/>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px'}}>
+                            <label style={{fontSize: '0.9rem', fontWeight: 'bold'}}>Datum narození:</label>
+                            <input style={{...styles.inputSmall, width: 'auto'}} type="date" value={profile?.birth_date || ''} onChange={e => setProfile({...profile, birth_date: e.target.value})} required/>
+                          </div>
+                          <button type="submit" style={{...styles.btnSave, marginTop: '15px'}}>Uložit profil</button>
+                          <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc', color: '#333', marginLeft: '5px', marginTop: '15px'}}>Zrušit</button>
+                        </form>
+                      ) : (
+                        <div>
+                          <p><strong>{profile?.full_name || 'Nevyplněné jméno'}</strong></p>
+                          <p>E-mail: {profile?.email || user?.email}</p>
+                          <p>Telefon: {profile?.phone || 'Nevyplněno'}</p>
+                          <p>Hospodářství: {profile?.stable || 'Nevyplněno'}</p>
+                          <p>Obec: {profile?.city || 'Nevyplněno'}</p>
+                          <p>Datum narození: {profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString('cs-CZ') : 'Nevyplněno'}</p>
+                          {( !profile?.full_name || !profile?.phone || !profile?.stable || !profile?.city || !profile?.birth_date ) && (
+                            <p style={{color: '#e57373', fontWeight: 'bold', fontSize: '0.85rem'}}>⚠️ Profil není kompletní.</p>
+                          )}
+                          <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit údaje</button>
+                          <button onClick={handleSignOut} style={styles.btnSignOut}>Odhlásit se</button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div style={{...styles.adminSection, background: '#fff', marginTop: '20px'}}>
+                      <h3 style={{ marginTop: 0 }}>🐎 Moji koně</h3>
+                      {myHorses.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#888' }}>Zatím žádní koně v historii.</p> : (
+                        <ul style={{ listStyle: 'none', padding: 0 }}>
+                          {myHorses.map(h => (
+                            <li key={h.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee' }}>
+                              {editingHorseId === h.id ? (
+                                <div style={{display: 'flex', flexDirection: 'column', gap: '5px', background: '#f5f5f5', padding: '10px', borderRadius: '6px'}}>
+                                  <input type="text" value={editHorseName} onChange={e => setEditHorseName(e.target.value)} style={styles.inputSmall} placeholder="Jméno" />
+                                  <div style={{display: 'flex', gap: '10px'}}>
+                                    <input type="number" value={editHorseYear} onChange={e => setEditHorseYear(e.target.value)} style={styles.inputSmall} placeholder="Rok (např. 2018)" />
+                                    <input type="text" value={editHorseIdNum} onChange={e => setEditHorseIdNum(e.target.value)} style={styles.inputSmall} placeholder="ID koně" />
+                                  </div>
+                                  <div style={{display: 'flex', gap: '5px', marginTop: '5px'}}>
+                                    <button onClick={() => saveEditedHorse(h.id)} style={{...styles.btnSave, padding: '5px 10px'}}>Uložit</button>
+                                    <button onClick={() => setEditingHorseId(null)} style={{background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontWeight: 'bold'}}>Zrušit</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                  <div>
+                                    <strong>{h.name}</strong> <br/>
+                                    <small style={{color: '#888'}}>(Rok: {h.birth_year || 'Neznámý'} | ID: {h.horse_id_number || 'Neznámé'})</small>
+                                  </div>
+                                  <div>
+                                    <button onClick={() => startEditingHorse(h)} style={{background: 'none', border: 'none', color: '#0277bd', cursor: 'pointer', marginRight: '10px'}}>✏️ Upravit</button>
+                                    <button onClick={() => handleDeleteHorse(h.id, h.name)} style={{background: 'none', border: 'none', color: '#d32f2f', cursor: 'pointer'}}>🗑️ Smazat</button>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {playerTab === 'telegram' && (
                   <div style={{background: '#e3f2fd', padding: '30px 20px', borderRadius: '8px', border: '1px solid #0288d1', textAlign: 'center', margin: '20px 0'}}>
@@ -2314,4 +2390,5 @@ const styles = {
 };
 // ==========================================
 // ============= KONEC ČÁSTI 5 ==============
+// ==========================================
 // ==========================================
