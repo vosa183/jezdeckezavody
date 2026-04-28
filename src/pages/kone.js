@@ -94,9 +94,9 @@ export default function StajoveImperium() {
       name: horseData.name,
       birth_year: horseData.birth_year,
       horse_id_number: horseData.horse_id_number,
-      // vaccination_date: horseData.vaccination_date, 
-      // farrier_date: horseData.farrier_date,
-      // diet_notes: horseData.diet_notes
+      vaccination_date: horseData.vaccination_date, 
+      farrier_date: horseData.farrier_date,
+      diet_notes: horseData.diet_notes
     };
 
     if (currentHorseId) {
