@@ -1543,7 +1543,6 @@ export default function Home() {
                           </div>
                           
                           <div style={{overflowX: 'auto'}}>
-                            {/* Rozdělená startka podle disciplín */}
                             {(() => {
                               const evRegs = allRegistrations.filter(r => r.event_id === adminSelectedEvent);
                               const evDisciplines = [...new Set(evRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
@@ -1697,10 +1696,11 @@ export default function Home() {
                   <h3 style={{margin: 0, color: '#0277bd'}}>Rozhodčí panel</h3>
                   <input 
                     type="text" 
-                    placeholder="Jméno rozhodčího" 
+                    placeholder="Jméno skutečného rozhodčího" 
                     value={actualJudgeName} 
                     onChange={(e) => setActualJudgeName(e.target.value)} 
-                    style={{...styles.inputSmall, width: '200px', margin: 0, border: '2px solid #0277bd'}}
+                    style={{...styles.inputSmall, width: '250px', margin: 0, border: '2px solid #0277bd'}}
+                    title="Toto jméno se bude propisovat na archy pro tisk."
                   />
                 </div>
                 
@@ -1725,17 +1725,17 @@ export default function Home() {
                             </div>
                             
                             {judgeDiscipline && (
-                              <div style={{flex: 2, background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #0277bd', minWidth: '250px'}}>
-                                <label style={{...styles.label, marginTop: 0}}>Názvy manévrů (oddělte čárkou):</label>
+                              <div style={{flex: 2, background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #0277bd'}}>
+                                <label style={{...styles.label, marginTop: 0}}>Názvy manévrů (oddělte čárkou, max 20):</label>
                                 <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
                                   <input 
                                     type="text" 
-                                    placeholder="např: Kruh P, Kruh L, Spin" 
+                                    placeholder="např: Kruh P, Kruh L, Spin, Couvání" 
                                     value={maneuversInputString} 
                                     onChange={e => setManeuversInputString(e.target.value)} 
                                     style={{...styles.inputSmall, margin: 0, flex: 1}}
                                   />
-                                  <button onClick={applyManeuversFromString} style={{...styles.btnSave, background: '#0277bd'}}>Nastavit</button>
+                                  <button onClick={applyManeuversFromString} style={{...styles.btnSave, background: '#0277bd'}}>Nastavit manévry</button>
                                 </div>
                               </div>
                             )}
@@ -1877,7 +1877,7 @@ export default function Home() {
                     <div style={{marginTop: '20px'}}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '10px'}}>
                         <h4 style={{margin: 0}}>Startovní pořadí: {judgeDiscipline}</h4>
-                        <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '8px 12px', width: 'auto'}}>📣 Oznámit konec disciplíny</button>
+                        <button onClick={() => announceDisciplineEnd(judgeDiscipline)} style={{...styles.btnOutline, marginTop: 0, padding: '8px 12px', width: 'auto'}}>📣 Oznámit konec disciplíny navenek</button>
                       </div>
                       <div style={{overflowX: 'auto'}}>
                         <table style={{width: '100%', borderCollapse: 'collapse'}}>
@@ -2275,12 +2275,9 @@ const mobileStyles = `
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       background: rgba(0,0,0,0.5); z-index: 999;
     }
-    .main-grid-responsive {
-      display: flex !important; flex-direction: column; width: 100% !important;
-    }
+    .main-layout { display: flex !important; flex-direction: column; width: 100% !important; }
     .main-content { padding: 15px !important; width: 100% !important; overflow-x: hidden; }
     .mobile-only { display: block !important; }
-    .top-nav-flex { flex-direction: column; align-items: stretch; }
   }
   .mobile-only { display: none; }
 `;
