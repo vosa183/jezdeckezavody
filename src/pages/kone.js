@@ -37,7 +37,7 @@ export default function StajoveImperium() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  // DENÍK A SOUBORY
+  // DENÍK, SOUBORY A KALENDÁŘ
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
   const [diaryLogs, setDiaryLogs] = useState([]);
   const [docFile, setDocFile] = useState(null);
@@ -45,6 +45,9 @@ export default function StajoveImperium() {
     date: new Date().toISOString().split('T')[0], 
     type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 
   });
+  
+  // Stavy pro zobrazení kalendáře
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   useEffect(() => { checkUser(); }, []);
 
@@ -88,9 +91,12 @@ export default function StajoveImperium() {
   };
 
   const toggleDiary = async (horseId) => {
-    if (expandedDiaryId === horseId) { setExpandedDiaryId(null); setDiaryLogs([]); }
-    else {
+    if (expandedDiaryId === horseId) { 
+      setExpandedDiaryId(null); 
+      setDiaryLogs([]); 
+    } else {
       setExpandedDiaryId(horseId);
+      setCalendarMonth(new Date()); // Otevřít kalendář na aktuálním měsíci
       const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
       setDiaryLogs(data || []);
     }
@@ -121,8 +127,16 @@ export default function StajoveImperium() {
     else {
       const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
       setDiaryLogs(data || []);
-      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 });
+      setNewLog({ date: newLog.date, type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 }); // Zachovat vybrané datum z kalendáře
       setDocFile(null);
+    }
+  };
+
+  const deleteDiaryLog = async (logId, horseId) => {
+    if(confirm('Opravdu smazat tento záznam z deníku?')) {
+      await supabase.from('horse_diary').delete().eq('id', logId);
+      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
+      setDiaryLogs(data || []);
     }
   };
 
@@ -168,6 +182,79 @@ export default function StajoveImperium() {
   const editHorse = (h) => {
     setHorseData({ ...h, vaccination_date: h.vaccination_date || '', farrier_date: h.farrier_date || '' });
     setCurrentHorseId(h.id); setIsEditingHorse(true);
+  };
+
+  // POMOCNÉ FUNKCE PRO KALENDÁŘ
+  const changeMonth = (offset) => {
+    const newDate = new Date(calendarMonth);
+    newDate.setMonth(newDate.getMonth() + offset);
+    setCalendarMonth(newDate);
+  };
+
+  const getTypeColor = (type) => {
+    const colors = {
+      'Jízdárna': '#1976d2', 'Lonž': '#8e24aa', 'Terén': '#388e3c', 'Skoky': '#f57f17',
+      'Závody': '#d32f2f', 'Odpočinek': '#9e9e9e', 'Veterinář': '#00838f', 'Zuby': '#00838f', 'Fyzio': '#00838f', 'Kovář': '#5d4037'
+    };
+    return colors[type] || '#333';
+  };
+
+  const renderCalendar = () => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    let firstDay = new Date(year, month, 1).getDay();
+    firstDay = firstDay === 0 ? 6 : firstDay - 1; // Po = 0, Ne = 6
+
+    const monthNames = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
+
+    const daysArray = [];
+    for (let i = 0; i < firstDay; i++) daysArray.push(null);
+    for (let i = 1; i <= daysInMonth; i++) daysArray.push(i);
+
+    return (
+      <div style={{background: '#fff', borderRadius: '8px', border: '1px solid #ccc', padding: '15px', marginBottom: '20px'}}>
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
+          <button onClick={() => changeMonth(-1)} style={styles.btnCalNav}>◀ Předchozí</button>
+          <strong style={{fontSize: '1.2rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
+          <button onClick={() => changeMonth(1)} style={styles.btnCalNav}>Další ▶</button>
+        </div>
+        
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '5px', fontSize: '0.85rem'}}>
+          <div>Po</div><div>Út</div><div>St</div><div>Čt</div><div>Pá</div><div>So</div><div>Ne</div>
+        </div>
+
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px'}}>
+          {daysArray.map((day, idx) => {
+            if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '4px', minHeight: '60px'}}></div>;
+            
+            const cellDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isSelected = newLog.date === cellDateStr;
+            const dayLogs = diaryLogs.filter(log => log.date === cellDateStr);
+
+            return (
+              <div 
+                key={idx} 
+                onClick={() => setNewLog({...newLog, date: cellDateStr})}
+                style={{
+                  border: isSelected ? '2px solid #0288d1' : '1px solid #eee',
+                  background: isSelected ? '#e3f2fd' : '#fff',
+                  borderRadius: '6px', minHeight: '60px', padding: '5px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.2s'
+                }}
+              >
+                <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#0288d1' : '#333'}}>{day}</span>
+                <div style={{display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center', marginTop: 'auto', width: '100%'}}>
+                  {dayLogs.map(log => (
+                    <div key={log.id} title={log.training_type} style={{width: '8px', height: '8px', borderRadius: '50%', backgroundColor: getTypeColor(log.training_type)}}></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   if (loading) return <div style={styles.loader}>Otevírám vrata stáje...</div>;
@@ -250,38 +337,62 @@ export default function StajoveImperium() {
                         <div style={styles.infoRow}>⚒️ Kovář: <span style={{color:farS.color}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString() : '!!!'}</span></div>
                         
                         <button onClick={() => toggleDiary(h.id)} style={{...styles.btnOutline, width:'100%', marginTop:'10px'}}>
-                          {isD ? ' zavřít deník' : '📖 Otevřít deník & výdaje'}
+                          {isD ? ' zavřít deník' : '📖 Otevřít deník & kalendář'}
                         </button>
 
                         {isD && (
-                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px'}}>
-                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px', fontWeight:'bold', color:'#2e7d32'}}>
-                              <span>Celkové výdaje:</span> <span>{totalSpent} Kč</span>
-                            </div>
+                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'15px', borderRadius:'8px'}}>
                             
-                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'15px'}}>
+                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px', fontWeight:'bold', color:'#2e7d32', fontSize: '1.1rem'}}>
+                              <span>Roční výdaje:</span> <span>{totalSpent.toLocaleString('cs-CZ')} Kč</span>
+                            </div>
+
+                            {/* ZDE JE NOVÝ KALENDÁŘ */}
+                            {renderCalendar()}
+                            
+                            <h5 style={{margin: '0 0 10px 0', color: '#0288d1'}}>Záznam pro {new Date(newLog.date).toLocaleDateString('cs-CZ')}</h5>
+                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'25px'}}>
                               <input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} />
-                              <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={styles.inputSmall}>
-                                <option value="Jízdárna">Jízdárna</option><option value="Veterinář">Veterinář</option>
-                                <option value="Zuby">Zuby</option><option value="Fyzio">Fyzio/Chiro</option>
-                                <option value="Závody">Závody</option><option value="Kovář">Kovář</option>
+                              <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={{...styles.inputSmall, background: getTypeColor(newLog.type), color: ['Odpočinek'].includes(newLog.type) ? '#000' : '#fff'}}>
+                                <option value="Jízdárna">Jízdárna</option><option value="Lonž">Lonž</option>
+                                <option value="Terén">Terén</option><option value="Skoky">Skoky</option>
+                                <option value="Veterinář">Veterinář</option><option value="Zuby">Zuby</option>
+                                <option value="Fyzio">Fyzio/Chiro</option><option value="Kovář">Kovář</option>
+                                <option value="Odpočinek">Odpočinek</option><option value="Závody">Závody</option>
                               </select>
-                              <input type="number" placeholder="Cena v Kč" onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
-                              <select onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
-                                <option value="0">Hodnocení</option><option value="5">⭐⭐⭐⭐⭐</option><option value="3">⭐⭐⭐</option><option value="1">⭐</option>
+
+                              {newLog.type === 'Závody' && (
+                                <select value={newLog.selectedEventName} onChange={e => setNewLog({...newLog, selectedEventName: e.target.value})} style={{...styles.inputSmall, gridColumn: 'span 2'}}>
+                                  <option value="">-- Který závod v systému? --</option>
+                                  {events.map(ev => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
+                                </select>
+                              )}
+
+                              <input type="number" placeholder="Cena v Kč" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
+                              <select value={newLog.rating} onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
+                                <option value="0">Hodnocení dne</option><option value="5">⭐⭐⭐⭐⭐ Skvělé</option><option value="3">⭐⭐⭐ Ušlo to</option><option value="1">⭐ Katastrofa</option>
                               </select>
-                              <input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{gridColumn:'span 2', fontSize:'0.7rem'}} />
-                              <textarea placeholder="Poznámka..." onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{gridColumn:'span 2', padding:'5px'}} />
-                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'8px', borderRadius:'5px'}}>Uložit záznam</button>
+                              <div style={{gridColumn:'span 2'}}>
+                                <label style={{fontSize: '0.8rem', color: '#666', display: 'block', marginBottom: '2px'}}>Příloha / Zpráva (PDF/JPG)</label>
+                                <input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{width: '100%', fontSize:'0.75rem', padding: '5px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px'}} />
+                              </div>
+                              <textarea placeholder="Co se dělalo, poznámky k tréninku..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{gridColumn:'span 2', padding:'8px', borderRadius: '6px', border: '1px solid #ccc', height: '60px'}} />
+                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'12px', borderRadius:'6px', fontWeight: 'bold', cursor: 'pointer'}}>Uložit do deníku</button>
                             </form>
 
+                            <h5 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Předchozí záznamy:</h5>
                             {diaryLogs.map(log => (
-                              <div key={log.id} style={{fontSize:'0.85rem', padding:'8px', borderBottom:'1px solid #eee', position:'relative'}}>
-                                <strong>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
-                                {log.rating > 0 && <span style={{marginLeft:'10px'}}>{'⭐'.repeat(log.rating)}</span>}
-                                <div style={{color:'#666'}}>{log.notes}</div>
-                                {log.cost > 0 && <div style={{color:'#2e7d32', fontWeight:'bold'}}>{log.cost} Kč</div>}
-                                {log.attachment_url && <a href={log.attachment_url} target="_blank" style={{color:'#0288d1', fontSize:'0.7rem'}}>📄 Zobrazit přílohu</a>}
+                              <div key={log.id} style={{fontSize:'0.85rem', padding:'12px', background: '#fff', borderRadius: '8px', borderLeft:`4px solid ${getTypeColor(log.training_type)}`, marginBottom: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)'}}>
+                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
+                                  <strong style={{fontSize: '1rem', color: '#333'}}>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
+                                  <button onClick={() => deleteDiaryLog(log.id, h.id)} style={{background:'none', border:'none', color:'#d32f2f', cursor:'pointer', fontSize:'0.8rem'}}>Smazat</button>
+                                </div>
+                                {log.rating > 0 && <div style={{marginBottom: '5px'}}>{'⭐'.repeat(log.rating)}</div>}
+                                <div style={{color:'#555', whiteSpace: 'pre-wrap', lineHeight: '1.4'}}>{log.notes}</div>
+                                <div style={{display: 'flex', gap: '15px', marginTop: '8px', borderTop: '1px dashed #eee', paddingTop: '8px'}}>
+                                  {log.cost > 0 && <span style={{color:'#2e7d32', fontWeight:'bold'}}>💰 {log.cost} Kč</span>}
+                                  {log.attachment_url && <a href={log.attachment_url} target="_blank" rel="noopener noreferrer" style={{color:'#0288d1', fontWeight: 'bold', textDecoration: 'none'}}>📎 Otevřít přílohu</a>}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -321,6 +432,7 @@ const styles = {
   topNav: { display: 'flex', background: '#3e2723', padding: '15px', alignItems: 'center', justifyContent: 'space-between' },
   hamburgerBtn: { background: '#ffb300', border: 'none', padding: '8px 12px', borderRadius: '5px', fontWeight: 'bold' },
   btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold' },
+  btnCalNav: { background: '#eee', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', color: '#333' },
   mainGrid: { display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px', maxWidth: '1400px', margin: '0 auto', padding: '20px' },
   contentGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' },
   card: { backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' },
@@ -329,7 +441,7 @@ const styles = {
   formCard: { backgroundColor: '#fafafa', padding: '20px', borderRadius: '12px', border: '1px solid #ddd' },
   infoRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0' },
   input: { padding: '10px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
-  inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%' },
+  inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' },
   btnAdd: { background: '#4caf50', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', fontWeight: 'bold' },
   btnPrimary: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold' },
   btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px' },
