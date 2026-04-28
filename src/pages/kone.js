@@ -19,7 +19,6 @@ const getHealthStatus = (dateString) => {
   return { text: `(V pořádku, zbývá ${diffDays} dní)`, color: '#2e7d32', bgColor: '#e8f5e9' };
 };
 
-// Pevná paleta barev pro jednotlivé koně
 const HORSE_COLORS = ['#0288d1', '#388e3c', '#d32f2f', '#f57f17', '#8e24aa', '#5d4037', '#00796b', '#c2185b'];
 
 export default function StajoveImperium() {
@@ -42,7 +41,7 @@ export default function StajoveImperium() {
 
   // DENÍK A KALENDÁŘ
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
-  const [allDiaryLogs, setAllDiaryLogs] = useState([]); // Všechny záznamy pro celou stáj
+  const [allDiaryLogs, setAllDiaryLogs] = useState([]); 
   const [docFile, setDocFile] = useState(null);
   const [newLog, setNewLog] = useState({ 
     date: new Date().toISOString().split('T')[0], 
@@ -70,7 +69,6 @@ export default function StajoveImperium() {
     const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId).order('created_at', { ascending: false });
     setMyHorses(horses || []);
     
-    // Načteme deníky pro všechny moje koně naráz (pro kalendář)
     if (horses && horses.length > 0) {
       const horseIds = horses.map(h => h.id);
       const { data: logs } = await supabase.from('horse_diary').select('*').in('horse_id', horseIds);
@@ -106,6 +104,14 @@ export default function StajoveImperium() {
     return HORSE_COLORS[index % HORSE_COLORS.length] || '#333';
   };
 
+  const getTypeColor = (type) => {
+    const colors = {
+      'Jízdárna': '#1976d2', 'Lonž': '#8e24aa', 'Terén': '#388e3c', 'Skoky': '#f57f17',
+      'Závody': '#d32f2f', 'Odpočinek': '#9e9e9e', 'Veterinář': '#00838f', 'Zuby': '#00838f', 'Fyzio': '#00838f', 'Kovář': '#5d4037'
+    };
+    return colors[type] || '#333';
+  };
+
   const toggleDiary = (horseId) => {
     if (expandedDiaryId === horseId) { 
       setExpandedDiaryId(null); 
@@ -138,7 +144,6 @@ export default function StajoveImperium() {
     
     if (error) alert(error.message);
     else {
-      // Obnova všech záznamů
       const horseIds = myHorses.map(h => h.id);
       const { data: logs } = await supabase.from('horse_diary').select('*').in('horse_id', horseIds);
       setAllDiaryLogs(logs || []);
@@ -206,6 +211,7 @@ export default function StajoveImperium() {
     setCalendarMonth(newDate);
   };
 
+  // MINI KALENDÁŘ PRO LEVÝ PANEL
   const renderGlobalCalendar = () => {
     if (myHorses.length === 0) return null;
 
@@ -221,32 +227,31 @@ export default function StajoveImperium() {
     for (let i = 1; i <= daysInMonth; i++) daysArray.push(i);
 
     return (
-      <div style={{background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', marginBottom: '30px'}}>
+      <div style={{background: '#fff', borderRadius: '8px', padding: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', marginTop: '20px', border: '1px solid #eee'}}>
+        <h4 style={{margin: '0 0 10px 0', color: '#5d4037', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>📅 Kalendář stáje</h4>
         
-        {/* LEGENDA KONÍ */}
-        <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '10px'}}>
-          <strong style={{color: '#5d4037'}}>Legenda stáje:</strong>
+        <div style={{display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '10px'}}>
           {myHorses.map(h => (
-            <div key={h.id} style={{display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.9rem', fontWeight: 'bold'}}>
-              <div style={{width: '12px', height: '12px', borderRadius: '50%', background: getHorseColor(h.id)}}></div>
+            <div key={h.id} style={{display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 'bold', color: '#555'}}>
+              <div style={{width: '10px', height: '10px', borderRadius: '50%', background: getHorseColor(h.id)}}></div>
               <span>{h.name}</span>
             </div>
           ))}
         </div>
 
-        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
-          <button onClick={() => changeMonth(-1)} style={styles.btnCalNav}>◀ Předchozí</button>
-          <strong style={{fontSize: '1.4rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
-          <button onClick={() => changeMonth(1)} style={styles.btnCalNav}>Další ▶</button>
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
+          <button onClick={() => changeMonth(-1)} style={styles.btnCalNavSmall}>◀</button>
+          <strong style={{fontSize: '0.9rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
+          <button onClick={() => changeMonth(1)} style={styles.btnCalNavSmall}>▶</button>
         </div>
         
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '8px', fontSize: '0.9rem'}}>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '4px', fontSize: '0.7rem'}}>
           <div>Po</div><div>Út</div><div>St</div><div>Čt</div><div>Pá</div><div>So</div><div>Ne</div>
         </div>
 
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px'}}>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px'}}>
           {daysArray.map((day, idx) => {
-            if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '6px', minHeight: '70px'}}></div>;
+            if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '4px', minHeight: '35px'}}></div>;
             
             const cellDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isSelected = newLog.date === cellDateStr;
@@ -255,27 +260,23 @@ export default function StajoveImperium() {
             return (
               <div 
                 key={idx} 
-                onClick={() => setNewLog({...newLog, date: cellDateStr})}
+                onClick={() => {
+                  setNewLog({...newLog, date: cellDateStr});
+                  if (window.innerWidth <= 768) setIsSidebarOpen(false); // Zavře menu na mobilu po výběru
+                }}
                 style={{
                   border: isSelected ? '2px solid #5d4037' : '1px solid #eee',
                   background: isSelected ? '#fff3e0' : '#fff',
-                  borderRadius: '8px', minHeight: '70px', padding: '5px', cursor: 'pointer',
+                  borderRadius: '4px', minHeight: '35px', padding: '2px', cursor: 'pointer',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.2s',
-                  boxShadow: isSelected ? '0 2px 5px rgba(0,0,0,0.1)' : 'none'
+                  boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
                 }}
               >
-                <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#5d4037' : '#333'}}>{day}</span>
-                <div style={{display: 'flex', flexWrap: 'wrap', gap: '3px', justifyContent: 'center', marginTop: 'auto', width: '100%', padding: '2px'}}>
-                  {dayLogs.map(log => {
-                     const horseInfo = myHorses.find(x => x.id === log.horse_id);
-                     return (
-                       <div 
-                         key={log.id} 
-                         title={`${horseInfo?.name}: ${log.training_type}`} 
-                         style={{width: '10px', height: '10px', borderRadius: '50%', backgroundColor: getHorseColor(log.horse_id)}}
-                       ></div>
-                     )
-                  })}
+                <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#5d4037' : '#333', fontSize: '0.8rem'}}>{day}</span>
+                <div style={{display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center', marginTop: 'auto', width: '100%'}}>
+                  {dayLogs.map(log => (
+                     <div key={log.id} title={log.training_type} style={{width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getHorseColor(log.horse_id)}}></div>
+                  ))}
                 </div>
               </div>
             );
@@ -293,7 +294,7 @@ export default function StajoveImperium() {
       {user && (
         <div style={styles.topNav}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <button className="mobile-only" onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={styles.hamburgerBtn}>☰</button>
+            <button className="mobile-only" onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={styles.hamburgerBtn}>☰ Stáj</button>
             <h2 style={{ margin: 0, color: '#fff' }}>🐴 Moje Stáj</h2>
           </div>
           <button onClick={() => window.location.href = '/'} style={styles.btnNavOutline}>🔙 Zpět na Závody</button>
@@ -313,6 +314,7 @@ export default function StajoveImperium() {
       ) : (
         <div className="main-layout" style={styles.mainGrid}>
           
+          {/* LEVÝ PANEL (PROFIL + KALENDÁŘ) */}
           <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`} style={styles.sideCard}>
             <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
             {editMode ? (
@@ -341,18 +343,21 @@ export default function StajoveImperium() {
                 <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnSignOut}>Odhlásit</button>
               </div>
             )}
-          </div>
 
-          <div className="main-content">
-            
-            {/* HLAVNÍ STÁJOVÝ KALENDÁŘ */}
+            {/* ZDE JE NYNÍ KALENDÁŘ */}
             {renderGlobalCalendar()}
 
+          </div>
+
+          {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
+
+          {/* HLAVNÍ PLOCHA (KONĚ A DENÍKY) */}
+          <div className="main-content">
             <div style={styles.contentGrid}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3 style={{ margin: 0, color: '#3e2723' }}>Moje koně</h3>
-                  <button onClick={() => setIsEditingHorse(true)} style={styles.btnAdd}>+ Nový kůň</button>
+                  <button onClick={() => { setIsEditingHorse(true); setCurrentHorseId(null); }} style={styles.btnAdd}>+ Nový kůň</button>
                 </div>
 
                 <div style={styles.horseList}>
@@ -378,24 +383,25 @@ export default function StajoveImperium() {
                         <div style={styles.infoRow}>💉 Očkování: <span style={{color:vacS.color}}>{h.vaccination_date ? new Date(h.vaccination_date).toLocaleDateString() : 'Nenastaveno'}</span></div>
                         <div style={styles.infoRow}>⚒️ Kovář: <span style={{color:farS.color}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString() : 'Nenastaveno'}</span></div>
                         
-                        <button onClick={() => toggleDiary(h.id)} style={{...styles.btnOutline, width:'100%', marginTop:'10px'}}>
-                          {isD ? ' zavřít deník' : '📖 Otevřít deník & výdaje'}
+                        <button onClick={() => toggleDiary(h.id)} style={{...styles.btnOutline, width:'100%', marginTop:'10px', background: isD ? '#f5f5f5' : 'transparent'}}>
+                          {isD ? '📖 Zavřít deník' : '📖 Otevřít deník & výdaje'}
                         </button>
 
                         {isD && (
-                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px'}}>
-                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px', fontWeight:'bold', color:'#2e7d32'}}>
-                              <span>Celkové výdaje na koně:</span> <span>{totalSpent.toLocaleString('cs-CZ')} Kč</span>
+                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'15px', borderRadius:'8px', border: '1px solid #eee'}}>
+                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px', fontWeight:'bold', color:'#2e7d32', fontSize: '1.1rem'}}>
+                              <span>Roční výdaje na koně:</span> <span>{totalSpent.toLocaleString('cs-CZ')} Kč</span>
                             </div>
                             
-                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'15px'}}>
+                            <h5 style={{margin: '0 0 10px 0', color: '#0288d1', fontSize: '1rem'}}>Záznam pro {new Date(newLog.date).toLocaleDateString('cs-CZ')}</h5>
+                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'25px', background: '#fff', padding: '15px', borderRadius: '8px', border: '1px solid #e3f2fd'}}>
                               <div style={{gridColumn: 'span 2'}}>
                                 <label style={styles.formLabel}>Záznam pro datum:</label>
                                 <input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} />
                               </div>
                               <div style={{gridColumn: 'span 2'}}>
                                 <label style={styles.formLabel}>Typ události:</label>
-                                <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={styles.inputSmall}>
+                                <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={{...styles.inputSmall, background: getTypeColor(newLog.type), color: ['Odpočinek'].includes(newLog.type) ? '#000' : '#fff'}}>
                                   <option value="Jízdárna">Jízdárna</option><option value="Lonž">Lonž</option>
                                   <option value="Terén">Terén</option><option value="Skoky">Skoky</option>
                                   <option value="Závody">Závody</option><option value="Odpočinek">Odpočinek</option>
@@ -403,13 +409,23 @@ export default function StajoveImperium() {
                                 </select>
                               </div>
                               
+                              {newLog.type === 'Závody' && (
+                                <div style={{gridColumn: 'span 2'}}>
+                                  <label style={styles.formLabel}>Vybrat ze závodů v systému:</label>
+                                  <select value={newLog.selectedEventName} onChange={e => setNewLog({...newLog, selectedEventName: e.target.value})} style={{...styles.inputSmall, border: '2px solid #0288d1'}}>
+                                    <option value="">-- Který závod v systému? --</option>
+                                    {events.map(ev => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
+                                  </select>
+                                </div>
+                              )}
+
                               <div style={{gridColumn: 'span 1'}}>
                                 <label style={styles.formLabel}>Náklady (Kč):</label>
-                                <input type="number" placeholder="0" onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
+                                <input type="number" placeholder="0" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
                               </div>
                               <div style={{gridColumn: 'span 1'}}>
                                 <label style={styles.formLabel}>Jak to šlo?</label>
-                                <select onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
+                                <select value={newLog.rating} onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
                                   <option value="0">Bez hodnocení</option><option value="5">⭐⭐⭐⭐⭐</option><option value="3">⭐⭐⭐</option><option value="1">⭐</option>
                                 </select>
                               </div>
@@ -420,23 +436,23 @@ export default function StajoveImperium() {
                               </div>
                               <div style={{gridColumn:'span 2'}}>
                                 <label style={styles.formLabel}>Poznámky k tréninku:</label>
-                                <textarea placeholder="Co se dělalo..." onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{...styles.inputSmall, height: '60px'}} />
+                                <textarea placeholder="Co se dělalo..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{...styles.inputSmall, height: '60px'}} />
                               </div>
-                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'10px', borderRadius:'6px', fontWeight: 'bold'}}>Uložit záznam do deníku</button>
+                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'12px', borderRadius:'6px', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px'}}>Uložit záznam do deníku</button>
                             </form>
 
-                            <h4 style={{margin: '15px 0 10px 0', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>Historie záznamů</h4>
+                            <h4 style={{margin: '15px 0 10px 0', borderBottom: '1px solid #ddd', paddingBottom: '5px', color: '#5d4037'}}>Historie záznamů</h4>
                             {horseLogs.length === 0 ? <p style={{fontSize: '0.85rem', color: '#888'}}>Žádné záznamy.</p> : horseLogs.map(log => (
-                              <div key={log.id} style={{fontSize:'0.85rem', padding:'10px', borderLeft:`3px solid ${getHorseColor(h.id)}`, background: '#fff', marginBottom: '8px', borderRadius: '4px'}}>
-                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '3px'}}>
-                                  <strong>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
-                                  <button onClick={() => deleteDiaryLog(log.id)} style={{background:'none', border:'none', color:'#e57373', cursor:'pointer', fontSize:'0.7rem'}}>Smazat</button>
+                              <div key={log.id} style={{fontSize:'0.85rem', padding:'12px', borderLeft:`4px solid ${getTypeColor(log.training_type)}`, background: '#fff', marginBottom: '10px', borderRadius: '6px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)'}}>
+                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
+                                  <strong style={{fontSize: '1rem', color: '#333'}}>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
+                                  <button onClick={() => deleteDiaryLog(log.id)} style={{background:'none', border:'none', color:'#e57373', cursor:'pointer', fontSize:'0.8rem'}}>Smazat</button>
                                 </div>
-                                {log.rating > 0 && <div style={{marginBottom: '3px'}}>{'⭐'.repeat(log.rating)}</div>}
-                                <div style={{color:'#666', whiteSpace: 'pre-wrap'}}>{log.notes}</div>
-                                <div style={{display: 'flex', gap: '10px', marginTop: '5px'}}>
+                                {log.rating > 0 && <div style={{marginBottom: '5px', fontSize: '1.1rem'}}>{'⭐'.repeat(log.rating)}</div>}
+                                <div style={{color:'#555', whiteSpace: 'pre-wrap', lineHeight: '1.4'}}>{log.notes}</div>
+                                <div style={{display: 'flex', gap: '15px', marginTop: '8px', borderTop: '1px dashed #eee', paddingTop: '8px'}}>
                                   {log.cost > 0 && <span style={{color:'#2e7d32', fontWeight:'bold'}}>💰 {log.cost} Kč</span>}
-                                  {log.attachment_url && <a href={log.attachment_url} target="_blank" style={{color:'#0288d1'}}>📎 Otevřít přílohu</a>}
+                                  {log.attachment_url && <a href={log.attachment_url} target="_blank" rel="noopener noreferrer" style={{color:'#0288d1', fontWeight: 'bold', textDecoration: 'none'}}>📎 Otevřít přílohu</a>}
                                 </div>
                               </div>
                             ))}
@@ -450,10 +466,10 @@ export default function StajoveImperium() {
 
               {isEditingHorse && (
                 <div style={styles.formCard}>
-                  <h3>{currentHorseId ? 'Upravit kartu koně' : 'Nová karta koně'}</h3>
+                  <h3 style={{marginTop: 0, color: '#5d4037'}}>{currentHorseId ? 'Upravit kartu koně' : 'Nová karta koně'}</h3>
                   <form onSubmit={handleSaveHorse} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
                     
-                    <div style={{background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #90caf9'}}>
+                    <div style={{background: '#e3f2fd', padding: '10px', borderRadius: '8px', border: '1px solid #90caf9'}}>
                       <label style={{...styles.formLabel, color: '#0288d1'}}>Profilová fotka (JPG/PNG)</label>
                       <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files[0])} style={{...styles.inputSmall, background: '#fff', marginTop: '5px'}} />
                     </div>
@@ -506,30 +522,48 @@ export default function StajoveImperium() {
   );
 }
 
-const mobileStyles = `@media (max-width: 768px) { .sidebar { position: fixed; top: 0; left: -300px; width: 280px; height: 100vh; z-index: 1000; transition: left 0.3s ease; background: white; box-shadow: 2px 0 10px rgba(0,0,0,0.2); overflow-y: auto; } .sidebar.open { left: 0; } .main-grid { display: block !important; } .mobile-only { display: block !important; } } .mobile-only { display: none; }`;
+const mobileStyles = `
+  @media (max-width: 768px) {
+    .sidebar {
+      position: fixed; top: 0; left: -300px; width: 280px; height: 100vh;
+      z-index: 1000; transition: left 0.3s ease; background: white;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.2); overflow-y: auto;
+    }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.5); z-index: 999;
+    }
+    .main-layout { display: flex !important; flex-direction: column; width: 100% !important; }
+    .main-content { width: 100% !important; overflow-x: hidden; }
+    .mobile-only { display: block !important; }
+  }
+  .mobile-only { display: none; }
+`;
 
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', fontFamily: 'sans-serif' },
   loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' },
   topNav: { display: 'flex', background: '#3e2723', padding: '15px', alignItems: 'center', justifyContent: 'space-between' },
   hamburgerBtn: { background: '#ffb300', border: 'none', padding: '8px 12px', borderRadius: '5px', fontWeight: 'bold' },
-  btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold' },
-  btnCalNav: { background: '#eee', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', color: '#333' },
+  btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
+  btnCalNavSmall: { background: '#eee', border: 'none', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', color: '#333', fontSize: '0.8rem' },
   mainGrid: { display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px', maxWidth: '1400px', margin: '0 auto', padding: '20px' },
   contentGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' },
   card: { backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' },
-  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037' },
+  sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037', borderRight: '1px solid #eee' },
   horseCard: { background: '#fff', borderRadius: '12px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   formCard: { backgroundColor: '#fafafa', padding: '20px', borderRadius: '12px', border: '1px solid #ddd' },
   infoRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: '0.9rem' },
   input: { padding: '10px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' },
   formLabel: { fontSize: '0.8rem', fontWeight: 'bold', color: '#666', marginBottom: '-2px' },
-  btnAdd: { background: '#4caf50', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', fontWeight: 'bold' },
-  btnPrimary: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold' },
-  btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px', width: '100%' },
-  btnIconEdit: { background: '#e3f2fd', border: 'none', padding: '5px', borderRadius: '4px' },
-  btnIconDelete: { background: '#ffebee', border: 'none', padding: '5px', borderRadius: '4px' },
-  btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', width: '100%', marginTop: '10px' },
-  btnSignOut: { background: '#e57373', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', marginTop: '10px', width: '100%' }
+  formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  btnAdd: { background: '#4caf50', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' },
+  btnPrimary: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
+  btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px', width: '100%', cursor: 'pointer' },
+  btnIconEdit: { background: '#e3f2fd', border: 'none', padding: '5px', borderRadius: '4px', cursor: 'pointer' },
+  btnIconDelete: { background: '#ffebee', border: 'none', padding: '5px', borderRadius: '4px', cursor: 'pointer' },
+  btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', width: '100%', marginTop: '10px', cursor: 'pointer' },
+  btnSignOut: { background: '#e57373', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', marginTop: '10px', width: '100%', cursor: 'pointer' }
 };
