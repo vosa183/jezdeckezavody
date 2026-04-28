@@ -7,14 +7,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// POMOCNÁ FUNKCE PRO HLÍDACÍHO PSA (Zdraví a Kovář)
 const getHealthStatus = (dateString) => {
   if (!dateString) return { text: '', status: 'none', color: '#888', bgColor: '#f5f5f5' };
-  
   const targetDate = new Date(dateString);
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Vynulujeme čas pro přesný výpočet celých dní
-  
+  today.setHours(0, 0, 0, 0); 
   const diffTime = targetDate - today;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -38,17 +35,16 @@ export default function StajoveImperium() {
   
   const [photoFile, setPhotoFile] = useState(null);
   const [horseData, setHorseData] = useState({
-    name: '',
-    birth_year: '',
-    horse_id_number: '',
-    vaccination_date: '', 
-    farrier_date: '',     
-    diet_notes: '',
-    photo_url: ''
+    name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '', photo_url: ''
   });
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+
+  // STAVY PRO DENÍK
+  const [expandedDiaryId, setExpandedDiaryId] = useState(null);
+  const [diaryLogs, setDiaryLogs] = useState([]);
+  const [newLog, setNewLog] = useState({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
 
   useEffect(() => {
     checkUser();
@@ -72,6 +68,41 @@ export default function StajoveImperium() {
     const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId).order('created_at', { ascending: false });
     setMyHorses(horses || []);
   }
+
+  // FUNKCE PRO DENÍK
+  const toggleDiary = async (horseId) => {
+    if (expandedDiaryId === horseId) {
+      setExpandedDiaryId(null);
+      setDiaryLogs([]);
+    } else {
+      setExpandedDiaryId(horseId);
+      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
+      setDiaryLogs(data || []);
+      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
+    }
+  };
+
+  const saveDiaryLog = async (e, horseId) => {
+    e.preventDefault();
+    const payload = { horse_id: horseId, date: newLog.date, training_type: newLog.type, notes: newLog.notes };
+    const { error } = await supabase.from('horse_diary').insert([payload]);
+    
+    if (error) {
+      alert('Chyba při ukládání záznamu: ' + error.message);
+    } else {
+      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
+      setDiaryLogs(data || []);
+      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
+    }
+  };
+
+  const deleteDiaryLog = async (logId, horseId) => {
+    if(confirm('Opravdu smazat tento záznam z deníku?')) {
+      await supabase.from('horse_diary').delete().eq('id', logId);
+      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
+      setDiaryLogs(data || []);
+    }
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -100,49 +131,28 @@ export default function StajoveImperium() {
   const updateProfile = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('profiles').update({
-      full_name: profile.full_name,
-      email: profile.email || user.email,
-      phone: profile.phone,
-      stable: profile.stable,
-      city: profile.city,
-      birth_date: profile.birth_date
+      full_name: profile.full_name, email: profile.email || user.email, phone: profile.phone, stable: profile.stable, city: profile.city, birth_date: profile.birth_date
     }).eq('id', user.id);
-    
     if (error) alert(error.message);
-    else { 
-      alert('Profil uložen!'); 
-      setEditMode(false); 
-    }
+    else { alert('Profil uložen!'); setEditMode(false); }
   };
 
   const handleSaveHorse = async (e) => {
     e.preventDefault();
-    
     let finalPhotoUrl = horseData.photo_url;
 
     if (photoFile) {
       const fileExt = photoFile.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from('horse_photos').upload(fileName, photoFile);
-      
-      if (uploadError) {
-        alert('Chyba při nahrávání fotky: ' + uploadError.message);
-        return;
-      }
-      
+      if (uploadError) return alert('Chyba při nahrávání fotky: ' + uploadError.message);
       const { data: urlData } = supabase.storage.from('horse_photos').getPublicUrl(fileName);
       finalPhotoUrl = urlData.publicUrl;
     }
 
     const payload = {
-      owner_id: user.id,
-      name: horseData.name,
-      birth_year: horseData.birth_year,
-      horse_id_number: horseData.horse_id_number,
-      vaccination_date: horseData.vaccination_date || null, 
-      farrier_date: horseData.farrier_date || null,
-      diet_notes: horseData.diet_notes,
-      photo_url: finalPhotoUrl
+      owner_id: user.id, name: horseData.name, birth_year: horseData.birth_year, horse_id_number: horseData.horse_id_number,
+      vaccination_date: horseData.vaccination_date || null, farrier_date: horseData.farrier_date || null, diet_notes: horseData.diet_notes, photo_url: finalPhotoUrl
     };
 
     if (currentHorseId) {
@@ -161,17 +171,9 @@ export default function StajoveImperium() {
 
   const editHorse = (h) => {
     setHorseData({
-      name: h.name || '',
-      birth_year: h.birth_year || '',
-      horse_id_number: h.horse_id_number || '',
-      vaccination_date: h.vaccination_date || '',
-      farrier_date: h.farrier_date || '',         
-      diet_notes: h.diet_notes || '',
-      photo_url: h.photo_url || ''
+      name: h.name || '', birth_year: h.birth_year || '', horse_id_number: h.horse_id_number || '', vaccination_date: h.vaccination_date || '', farrier_date: h.farrier_date || '', diet_notes: h.diet_notes || '', photo_url: h.photo_url || ''
     });
-    setPhotoFile(null);
-    setCurrentHorseId(h.id);
-    setIsEditingHorse(true);
+    setPhotoFile(null); setCurrentHorseId(h.id); setIsEditingHorse(true);
   };
 
   const deleteHorse = async (id, name) => {
@@ -184,9 +186,7 @@ export default function StajoveImperium() {
 
   const resetHorseForm = () => {
     setHorseData({ name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '', photo_url: '' });
-    setPhotoFile(null);
-    setCurrentHorseId(null);
-    setIsEditingHorse(false);
+    setPhotoFile(null); setCurrentHorseId(null); setIsEditingHorse(false);
   };
 
   const renderSidebar = () => (
@@ -289,6 +289,7 @@ export default function StajoveImperium() {
                     {myHorses.map(h => {
                       const vacStatus = getHealthStatus(h.vaccination_date);
                       const farrierStatus = getHealthStatus(h.farrier_date);
+                      const isDiaryOpen = expandedDiaryId === h.id;
 
                       return (
                         <div key={h.id} style={styles.horseCard}>
@@ -306,8 +307,8 @@ export default function StajoveImperium() {
                               <span style={{ fontSize: '0.85rem', color: '#888', background: '#f5f5f5', padding: '3px 8px', borderRadius: '12px' }}>ID: {h.horse_id_number || 'Nezadáno'}</span>
                             </div>
                             <div style={styles.cardActions}>
-                              <button onClick={() => editHorse(h)} style={styles.btnIconEdit}>✏️</button>
-                              <button onClick={() => deleteHorse(h.id, h.name)} style={styles.btnIconDelete}>🗑️</button>
+                              <button onClick={() => editHorse(h)} style={styles.btnIconEdit} title="Upravit koně">✏️</button>
+                              <button onClick={() => deleteHorse(h.id, h.name)} style={styles.btnIconDelete} title="Smazat koně">🗑️</button>
                             </div>
                           </div>
                           
@@ -332,6 +333,47 @@ export default function StajoveImperium() {
                               <div style={{ marginTop: '10px', background: '#fff9c4', padding: '10px', borderRadius: '6px', fontSize: '0.85rem', borderLeft: '3px solid #fbc02d' }}>
                                 <strong>🍏 Dieta/Poznámky:</strong><br />
                                 <span style={{whiteSpace: 'pre-wrap'}}>{h.diet_notes}</span>
+                              </div>
+                            )}
+
+                            {/* TLAČÍTKO PRO DENÍK */}
+                            <button onClick={() => toggleDiary(h.id)} style={{...styles.btnOutline, marginTop: '15px', background: isDiaryOpen ? '#e3f2fd' : 'transparent'}}>
+                              {isDiaryOpen ? '📖 Zavřít deník' : '📖 Otevřít deník tréninků'}
+                            </button>
+
+                            {/* OBSAH DENÍKU */}
+                            {isDiaryOpen && (
+                              <div style={{marginTop: '15px', borderTop: '2px solid #eee', paddingTop: '15px'}}>
+                                <h5 style={{margin: '0 0 10px 0', color: '#0288d1'}}>Zapsat nový trénink</h5>
+                                <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px'}}>
+                                  <input type="date" value={newLog.date} onChange={e => setNewLog({...newLog, date: e.target.value})} style={{...styles.inputSmall, flex: 1, minWidth: '120px'}} required />
+                                  <select value={newLog.type} onChange={e => setNewLog({...newLog, type: e.target.value})} style={{...styles.inputSmall, flex: 1, minWidth: '120px'}} required>
+                                    <option value="Jízdárna">Jízdárna</option>
+                                    <option value="Lonž">Lonž</option>
+                                    <option value="Terén">Terén</option>
+                                    <option value="Skoky">Skoky</option>
+                                    <option value="Závody">Závody</option>
+                                    <option value="Odpočinek">Odpočinek</option>
+                                    <option value="Veterinář">Veterinář / Ošetření</option>
+                                  </select>
+                                  <input type="text" placeholder="Poznámka..." value={newLog.notes} onChange={e => setNewLog({...newLog, notes: e.target.value})} style={{...styles.inputSmall, flex: 2, minWidth: '200px'}} />
+                                  <button type="submit" style={{...styles.btnSave, background: '#0288d1'}}>Uložit</button>
+                                </form>
+
+                                <h5 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Historie deníku</h5>
+                                {diaryLogs.length === 0 ? <p style={{fontSize: '0.85rem', color: '#888'}}>Deník je prázdný.</p> : (
+                                  <ul style={{listStyle: 'none', padding: 0, margin: 0}}>
+                                    {diaryLogs.map(log => (
+                                      <li key={log.id} style={{padding: '10px', background: '#fafafa', borderRadius: '6px', marginBottom: '8px', borderLeft: '3px solid #0288d1', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                                        <div>
+                                          <strong style={{color: '#333'}}>{new Date(log.date).toLocaleDateString('cs-CZ')} - {log.training_type}</strong>
+                                          {log.notes && <div style={{fontSize: '0.85rem', color: '#666', marginTop: '4px'}}>{log.notes}</div>}
+                                        </div>
+                                        <button onClick={() => deleteDiaryLog(log.id, h.id)} style={{background: 'none', border: 'none', color: '#e57373', cursor: 'pointer', fontSize: '0.8rem'}}>Smazat</button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
                             )}
 
@@ -375,7 +417,7 @@ export default function StajoveImperium() {
 
                     <hr style={{ border: 'none', borderTop: '1px dashed #ccc', margin: '5px 0' }} />
                     
-                    <h4 style={{ margin: 0, color: '#0288d1' }}>Zdravotní a stájový deník</h4>
+                    <h4 style={{ margin: 0, color: '#0288d1' }}>Zdravotní plánování</h4>
                     
                     <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
                       <div style={{...styles.formGroup, flex: 1, minWidth: '150px'}}>
@@ -456,13 +498,13 @@ const styles = {
   horseCard: { background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #5d4037', transition: 'transform 0.2s' },
   horseCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' },
   cardActions: { display: 'flex', gap: '5px' },
-  horseCardBody: { display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', color: '#333' },
+  horseCardBody: { display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.95rem', color: '#333', background: '#fafafa', padding: '10px', borderRadius: '8px' },
   infoRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', paddingBottom: '6px', marginTop: '4px' },
   
   formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
   formLabel: { fontSize: '0.85rem', fontWeight: 'bold', color: '#666' },
   input: { padding: '12px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1rem' },
-  inputSmall: { padding: '10px', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box' },
+  inputSmall: { padding: '10px', borderRadius: '5px', border: '1px solid #ddd', boxSizing: 'border-box', margin: '4px 0' },
   
   btnAdd: { background: '#4caf50', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem' },
   btnPrimary: { background: '#5d4037', color: 'white', border: 'none', padding: '14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
