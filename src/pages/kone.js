@@ -30,6 +30,7 @@ export default function StajoveImperium() {
   const [isSignUp, setIsSignUp] = useState(false);
 
   const [myHorses, setMyHorses] = useState([]);
+  const [events, setEvents] = useState([]); // FÁZE D: Závody z hlavní databáze
   const [isEditingHorse, setIsEditingHorse] = useState(false);
   const [currentHorseId, setCurrentHorseId] = useState(null);
   
@@ -44,7 +45,7 @@ export default function StajoveImperium() {
   // STAVY PRO DENÍK
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
   const [diaryLogs, setDiaryLogs] = useState([]);
-  const [newLog, setNewLog] = useState({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
+  const [newLog, setNewLog] = useState({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '' });
 
   useEffect(() => {
     checkUser();
@@ -58,6 +59,7 @@ export default function StajoveImperium() {
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
         await fetchMyHorses(authUser.id);
+        await fetchEvents(); // Načteme závody
       }
     } finally {
       setLoading(false);
@@ -69,6 +71,12 @@ export default function StajoveImperium() {
     setMyHorses(horses || []);
   }
 
+  // FÁZE D: Načtení závodů
+  async function fetchEvents() {
+    const { data } = await supabase.from('events').select('*').order('event_date', { ascending: false });
+    setEvents(data || []);
+  }
+
   // FUNKCE PRO DENÍK
   const toggleDiary = async (horseId) => {
     if (expandedDiaryId === horseId) {
@@ -78,13 +86,20 @@ export default function StajoveImperium() {
       setExpandedDiaryId(horseId);
       const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
       setDiaryLogs(data || []);
-      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
+      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '' });
     }
   };
 
   const saveDiaryLog = async (e, horseId) => {
     e.preventDefault();
-    const payload = { horse_id: horseId, date: newLog.date, training_type: newLog.type, notes: newLog.notes };
+    
+    // FÁZE D: Pokud vybral Závody, připojíme název závodu do poznámky
+    let finalNotes = newLog.notes;
+    if (newLog.type === 'Závody' && newLog.selectedEventName) {
+      finalNotes = `[${newLog.selectedEventName}] ${finalNotes}`;
+    }
+
+    const payload = { horse_id: horseId, date: newLog.date, training_type: newLog.type, notes: finalNotes };
     const { error } = await supabase.from('horse_diary').insert([payload]);
     
     if (error) {
@@ -92,7 +107,7 @@ export default function StajoveImperium() {
     } else {
       const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
       setDiaryLogs(data || []);
-      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '' });
+      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '' });
     }
   };
 
@@ -264,9 +279,27 @@ export default function StajoveImperium() {
 
           <div className="main-content">
             
-            <div style={styles.welcomePanel}>
-              <h2 style={{ margin: '0 0 5px 0', color: '#5d4037' }}>Vítejte, {profile?.full_name || 'Neznámý jezdci'}!</h2>
-              <p style={{ margin: 0, color: '#666' }}>Tady je vaše osobní centrála pro správu koňských parťáků. Plánujte tréninky, hlídejte očkování a mějte vše na jednom místě.</p>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: '30px' }}>
+              <div style={{...styles.welcomePanel, flex: 2, marginBottom: 0}}>
+                <h2 style={{ margin: '0 0 5px 0', color: '#5d4037' }}>Vítejte, {profile?.full_name || 'Neznámý jezdci'}!</h2>
+                <p style={{ margin: 0, color: '#666' }}>Tady je vaše osobní centrála pro správu koňských parťáků. Plánujte tréninky, hlídejte očkování a mějte vše na jednom místě.</p>
+              </div>
+              
+              {/* FÁZE D: Mini-kalendář budoucích závodů z hlavní databáze */}
+              <div style={{...styles.welcomePanel, flex: 1, borderLeft: '6px solid #0288d1', background: '#e3f2fd', marginBottom: 0}}>
+                <h4 style={{ margin: '0 0 10px 0', color: '#0288d1' }}>📅 Plánované Závody</h4>
+                {events.filter(e => new Date(e.event_date) >= new Date()).length === 0 ? (
+                  <p style={{margin: 0, fontSize: '0.85rem', color: '#666'}}>Zatím nejsou vypsány žádné akce.</p>
+                ) : (
+                  <ul style={{margin: 0, padding: 0, listStyle: 'none'}}>
+                    {events.filter(e => new Date(e.event_date) >= new Date()).slice(0, 3).map(e => (
+                      <li key={e.id} style={{fontSize: '0.85rem', color: '#333', marginBottom: '5px'}}>
+                        <strong>{new Date(e.event_date).toLocaleDateString('cs-CZ')}</strong> - {e.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
 
             <div style={styles.contentGrid}>
@@ -356,6 +389,15 @@ export default function StajoveImperium() {
                                     <option value="Odpočinek">Odpočinek</option>
                                     <option value="Veterinář">Veterinář / Ošetření</option>
                                   </select>
+                                  
+                                  {/* FÁZE D: Roletka se závody se ukáže, jen když je vybrán typ Závody */}
+                                  {newLog.type === 'Závody' && (
+                                    <select value={newLog.selectedEventName} onChange={e => setNewLog({...newLog, selectedEventName: e.target.value})} style={{...styles.inputSmall, flex: 1, minWidth: '150px', border: '2px solid #0288d1'}}>
+                                      <option value="">-- Který závod? --</option>
+                                      {events.map(ev => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
+                                    </select>
+                                  )}
+
                                   <input type="text" placeholder="Poznámka..." value={newLog.notes} onChange={e => setNewLog({...newLog, notes: e.target.value})} style={{...styles.inputSmall, flex: 2, minWidth: '200px'}} />
                                   <button type="submit" style={{...styles.btnSave, background: '#0288d1'}}>Uložit</button>
                                 </form>
