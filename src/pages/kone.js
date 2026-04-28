@@ -19,6 +19,9 @@ const getHealthStatus = (dateString) => {
   return { text: `(V pořádku, zbývá ${diffDays} dní)`, color: '#2e7d32', bgColor: '#e8f5e9' };
 };
 
+// Pevná paleta barev pro jednotlivé koně
+const HORSE_COLORS = ['#0288d1', '#388e3c', '#d32f2f', '#f57f17', '#8e24aa', '#5d4037', '#00796b', '#c2185b'];
+
 export default function StajoveImperium() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -37,16 +40,15 @@ export default function StajoveImperium() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  // DENÍK, SOUBORY A KALENDÁŘ
+  // DENÍK A KALENDÁŘ
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
-  const [diaryLogs, setDiaryLogs] = useState([]);
+  const [allDiaryLogs, setAllDiaryLogs] = useState([]); // Všechny záznamy pro celou stáj
   const [docFile, setDocFile] = useState(null);
   const [newLog, setNewLog] = useState({ 
     date: new Date().toISOString().split('T')[0], 
     type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 
   });
   
-  // Stavy pro zobrazení kalendáře
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   useEffect(() => { checkUser(); }, []);
@@ -67,6 +69,15 @@ export default function StajoveImperium() {
   async function fetchMyHorses(userId) {
     const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId).order('created_at', { ascending: false });
     setMyHorses(horses || []);
+    
+    // Načteme deníky pro všechny moje koně naráz (pro kalendář)
+    if (horses && horses.length > 0) {
+      const horseIds = horses.map(h => h.id);
+      const { data: logs } = await supabase.from('horse_diary').select('*').in('horse_id', horseIds);
+      setAllDiaryLogs(logs || []);
+    } else {
+      setAllDiaryLogs([]);
+    }
   }
 
   async function fetchEvents() {
@@ -90,15 +101,17 @@ export default function StajoveImperium() {
     setLoading(false);
   };
 
-  const toggleDiary = async (horseId) => {
+  const getHorseColor = (horseId) => {
+    const index = myHorses.findIndex(h => h.id === horseId);
+    return HORSE_COLORS[index % HORSE_COLORS.length] || '#333';
+  };
+
+  const toggleDiary = (horseId) => {
     if (expandedDiaryId === horseId) { 
       setExpandedDiaryId(null); 
-      setDiaryLogs([]); 
     } else {
       setExpandedDiaryId(horseId);
-      setCalendarMonth(new Date()); // Otevřít kalendář na aktuálním měsíci
-      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
-      setDiaryLogs(data || []);
+      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 });
     }
   };
 
@@ -125,18 +138,21 @@ export default function StajoveImperium() {
     
     if (error) alert(error.message);
     else {
-      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
-      setDiaryLogs(data || []);
-      setNewLog({ date: newLog.date, type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 }); // Zachovat vybrané datum z kalendáře
+      // Obnova všech záznamů
+      const horseIds = myHorses.map(h => h.id);
+      const { data: logs } = await supabase.from('horse_diary').select('*').in('horse_id', horseIds);
+      setAllDiaryLogs(logs || []);
+      setNewLog({ date: newLog.date, type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 });
       setDocFile(null);
     }
   };
 
-  const deleteDiaryLog = async (logId, horseId) => {
+  const deleteDiaryLog = async (logId) => {
     if(confirm('Opravdu smazat tento záznam z deníku?')) {
       await supabase.from('horse_diary').delete().eq('id', logId);
-      const { data } = await supabase.from('horse_diary').select('*').eq('horse_id', horseId).order('date', { ascending: false });
-      setDiaryLogs(data || []);
+      const horseIds = myHorses.map(h => h.id);
+      const { data: logs } = await supabase.from('horse_diary').select('*').in('horse_id', horseIds);
+      setAllDiaryLogs(logs || []);
     }
   };
 
@@ -184,70 +200,82 @@ export default function StajoveImperium() {
     setCurrentHorseId(h.id); setIsEditingHorse(true);
   };
 
-  // POMOCNÉ FUNKCE PRO KALENDÁŘ
   const changeMonth = (offset) => {
     const newDate = new Date(calendarMonth);
     newDate.setMonth(newDate.getMonth() + offset);
     setCalendarMonth(newDate);
   };
 
-  const getTypeColor = (type) => {
-    const colors = {
-      'Jízdárna': '#1976d2', 'Lonž': '#8e24aa', 'Terén': '#388e3c', 'Skoky': '#f57f17',
-      'Závody': '#d32f2f', 'Odpočinek': '#9e9e9e', 'Veterinář': '#00838f', 'Zuby': '#00838f', 'Fyzio': '#00838f', 'Kovář': '#5d4037'
-    };
-    return colors[type] || '#333';
-  };
+  const renderGlobalCalendar = () => {
+    if (myHorses.length === 0) return null;
 
-  const renderCalendar = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     let firstDay = new Date(year, month, 1).getDay();
-    firstDay = firstDay === 0 ? 6 : firstDay - 1; // Po = 0, Ne = 6
+    firstDay = firstDay === 0 ? 6 : firstDay - 1; 
 
     const monthNames = ['Leden', 'Únor', 'Březen', 'Duben', 'Květen', 'Červen', 'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'];
-
     const daysArray = [];
     for (let i = 0; i < firstDay; i++) daysArray.push(null);
     for (let i = 1; i <= daysInMonth; i++) daysArray.push(i);
 
     return (
-      <div style={{background: '#fff', borderRadius: '8px', border: '1px solid #ccc', padding: '15px', marginBottom: '20px'}}>
+      <div style={{background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', marginBottom: '30px'}}>
+        
+        {/* LEGENDA KONÍ */}
+        <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '20px', borderBottom: '1px solid #eee', paddingBottom: '10px'}}>
+          <strong style={{color: '#5d4037'}}>Legenda stáje:</strong>
+          {myHorses.map(h => (
+            <div key={h.id} style={{display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.9rem', fontWeight: 'bold'}}>
+              <div style={{width: '12px', height: '12px', borderRadius: '50%', background: getHorseColor(h.id)}}></div>
+              <span>{h.name}</span>
+            </div>
+          ))}
+        </div>
+
         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
           <button onClick={() => changeMonth(-1)} style={styles.btnCalNav}>◀ Předchozí</button>
-          <strong style={{fontSize: '1.2rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
+          <strong style={{fontSize: '1.4rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
           <button onClick={() => changeMonth(1)} style={styles.btnCalNav}>Další ▶</button>
         </div>
         
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '5px', fontSize: '0.85rem'}}>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '8px', fontSize: '0.9rem'}}>
           <div>Po</div><div>Út</div><div>St</div><div>Čt</div><div>Pá</div><div>So</div><div>Ne</div>
         </div>
 
-        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px'}}>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px'}}>
           {daysArray.map((day, idx) => {
-            if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '4px', minHeight: '60px'}}></div>;
+            if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '6px', minHeight: '70px'}}></div>;
             
             const cellDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isSelected = newLog.date === cellDateStr;
-            const dayLogs = diaryLogs.filter(log => log.date === cellDateStr);
+            const dayLogs = allDiaryLogs.filter(log => log.date === cellDateStr);
 
             return (
               <div 
                 key={idx} 
                 onClick={() => setNewLog({...newLog, date: cellDateStr})}
                 style={{
-                  border: isSelected ? '2px solid #0288d1' : '1px solid #eee',
-                  background: isSelected ? '#e3f2fd' : '#fff',
-                  borderRadius: '6px', minHeight: '60px', padding: '5px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.2s'
+                  border: isSelected ? '2px solid #5d4037' : '1px solid #eee',
+                  background: isSelected ? '#fff3e0' : '#fff',
+                  borderRadius: '8px', minHeight: '70px', padding: '5px', cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.2s',
+                  boxShadow: isSelected ? '0 2px 5px rgba(0,0,0,0.1)' : 'none'
                 }}
               >
-                <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#0288d1' : '#333'}}>{day}</span>
-                <div style={{display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center', marginTop: 'auto', width: '100%'}}>
-                  {dayLogs.map(log => (
-                    <div key={log.id} title={log.training_type} style={{width: '8px', height: '8px', borderRadius: '50%', backgroundColor: getTypeColor(log.training_type)}}></div>
-                  ))}
+                <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#5d4037' : '#333'}}>{day}</span>
+                <div style={{display: 'flex', flexWrap: 'wrap', gap: '3px', justifyContent: 'center', marginTop: 'auto', width: '100%', padding: '2px'}}>
+                  {dayLogs.map(log => {
+                     const horseInfo = myHorses.find(x => x.id === log.horse_id);
+                     return (
+                       <div 
+                         key={log.id} 
+                         title={`${horseInfo?.name}: ${log.training_type}`} 
+                         style={{width: '10px', height: '10px', borderRadius: '50%', backgroundColor: getHorseColor(log.horse_id)}}
+                       ></div>
+                     )
+                  })}
                 </div>
               </div>
             );
@@ -289,13 +317,19 @@ export default function StajoveImperium() {
             <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
             {editMode ? (
               <form onSubmit={updateProfile} style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                <label style={styles.formLabel}>Jméno a příjmení</label>
                 <input style={styles.inputSmall} value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} placeholder="Jméno" />
+                
+                <label style={styles.formLabel}>Licence jezdce</label>
                 <select style={styles.inputSmall} value={profile?.license_type || 'Hobby'} onChange={e => setProfile({...profile, license_type: e.target.value})}>
-                  <option value="Hobby">Licence: Hobby</option>
-                  <option value="ZZVJ">Licence: ZZVJ</option>
-                  <option value="Profi">Licence: Profi</option>
+                  <option value="Hobby">Hobby</option>
+                  <option value="ZZVJ">ZZVJ</option>
+                  <option value="Profi">Profi</option>
                 </select>
+                
+                <label style={styles.formLabel}>Název hospodářství</label>
                 <input style={styles.inputSmall} value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} placeholder="Hospodářství" />
+                
                 <button type="submit" style={styles.btnSave}>Uložit</button>
                 <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc'}}>Zrušit</button>
               </form>
@@ -310,6 +344,10 @@ export default function StajoveImperium() {
           </div>
 
           <div className="main-content">
+            
+            {/* HLAVNÍ STÁJOVÝ KALENDÁŘ */}
+            {renderGlobalCalendar()}
+
             <div style={styles.contentGrid}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -322,76 +360,83 @@ export default function StajoveImperium() {
                     const vacS = getHealthStatus(h.vaccination_date);
                     const farS = getHealthStatus(h.farrier_date);
                     const isD = expandedDiaryId === h.id;
-                    const totalSpent = diaryLogs.reduce((acc, l) => acc + (l.cost || 0), 0);
+                    const horseLogs = allDiaryLogs.filter(l => l.horse_id === h.id);
+                    const totalSpent = horseLogs.reduce((acc, l) => acc + (l.cost || 0), 0);
 
                     return (
-                      <div key={h.id} style={styles.horseCard}>
+                      <div key={h.id} style={{...styles.horseCard, borderLeft: `6px solid ${getHorseColor(h.id)}`}}>
                         <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '10px' }}>
-                          <img src={h.photo_url || 'https://via.placeholder.com/80?text=KŮŇ'} style={{width:'60px', height:'60px', borderRadius:'50%', objectFit:'cover', border:'2px solid #5d4037'}} />
-                          <div style={{flex:1}}><h4 style={{margin:0}}>{h.name}</h4><small>{h.birth_year}</small></div>
+                          <img src={h.photo_url || 'https://via.placeholder.com/80?text=KŮŇ'} style={{width:'60px', height:'60px', borderRadius:'50%', objectFit:'cover', border:`2px solid ${getHorseColor(h.id)}`}} />
+                          <div style={{flex:1}}>
+                            <h4 style={{margin:0}}>{h.name}</h4>
+                            <small>{h.birth_year}</small>
+                          </div>
                           <button onClick={() => editHorse(h)} style={styles.btnIconEdit}>✏️</button>
                           <button onClick={() => deleteHorse(h.id, h.name)} style={styles.btnIconDelete}>🗑️</button>
                         </div>
                         
-                        <div style={styles.infoRow}>💉 Očkování: <span style={{color:vacS.color}}>{h.vaccination_date ? new Date(h.vaccination_date).toLocaleDateString() : '!!!'}</span></div>
-                        <div style={styles.infoRow}>⚒️ Kovář: <span style={{color:farS.color}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString() : '!!!'}</span></div>
+                        <div style={styles.infoRow}>💉 Očkování: <span style={{color:vacS.color}}>{h.vaccination_date ? new Date(h.vaccination_date).toLocaleDateString() : 'Nenastaveno'}</span></div>
+                        <div style={styles.infoRow}>⚒️ Kovář: <span style={{color:farS.color}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString() : 'Nenastaveno'}</span></div>
                         
                         <button onClick={() => toggleDiary(h.id)} style={{...styles.btnOutline, width:'100%', marginTop:'10px'}}>
-                          {isD ? ' zavřít deník' : '📖 Otevřít deník & kalendář'}
+                          {isD ? ' zavřít deník' : '📖 Otevřít deník & výdaje'}
                         </button>
 
                         {isD && (
-                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'15px', borderRadius:'8px'}}>
-                            
-                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px', fontWeight:'bold', color:'#2e7d32', fontSize: '1.1rem'}}>
-                              <span>Roční výdaje:</span> <span>{totalSpent.toLocaleString('cs-CZ')} Kč</span>
+                          <div style={{marginTop:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px'}}>
+                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px', fontWeight:'bold', color:'#2e7d32'}}>
+                              <span>Celkové výdaje na koně:</span> <span>{totalSpent.toLocaleString('cs-CZ')} Kč</span>
                             </div>
-
-                            {/* ZDE JE NOVÝ KALENDÁŘ */}
-                            {renderCalendar()}
                             
-                            <h5 style={{margin: '0 0 10px 0', color: '#0288d1'}}>Záznam pro {new Date(newLog.date).toLocaleDateString('cs-CZ')}</h5>
-                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'25px'}}>
-                              <input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} />
-                              <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={{...styles.inputSmall, background: getTypeColor(newLog.type), color: ['Odpočinek'].includes(newLog.type) ? '#000' : '#fff'}}>
-                                <option value="Jízdárna">Jízdárna</option><option value="Lonž">Lonž</option>
-                                <option value="Terén">Terén</option><option value="Skoky">Skoky</option>
-                                <option value="Veterinář">Veterinář</option><option value="Zuby">Zuby</option>
-                                <option value="Fyzio">Fyzio/Chiro</option><option value="Kovář">Kovář</option>
-                                <option value="Odpočinek">Odpočinek</option><option value="Závody">Závody</option>
-                              </select>
-
-                              {newLog.type === 'Závody' && (
-                                <select value={newLog.selectedEventName} onChange={e => setNewLog({...newLog, selectedEventName: e.target.value})} style={{...styles.inputSmall, gridColumn: 'span 2'}}>
-                                  <option value="">-- Který závod v systému? --</option>
-                                  {events.map(ev => <option key={ev.id} value={ev.name}>{ev.name}</option>)}
-                                </select>
-                              )}
-
-                              <input type="number" placeholder="Cena v Kč" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
-                              <select value={newLog.rating} onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
-                                <option value="0">Hodnocení dne</option><option value="5">⭐⭐⭐⭐⭐ Skvělé</option><option value="3">⭐⭐⭐ Ušlo to</option><option value="1">⭐ Katastrofa</option>
-                              </select>
-                              <div style={{gridColumn:'span 2'}}>
-                                <label style={{fontSize: '0.8rem', color: '#666', display: 'block', marginBottom: '2px'}}>Příloha / Zpráva (PDF/JPG)</label>
-                                <input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{width: '100%', fontSize:'0.75rem', padding: '5px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px'}} />
+                            <form onSubmit={(e) => saveDiaryLog(e, h.id)} style={{display:'grid', gap:'8px', gridTemplateColumns:'1fr 1fr', marginBottom:'15px'}}>
+                              <div style={{gridColumn: 'span 2'}}>
+                                <label style={styles.formLabel}>Záznam pro datum:</label>
+                                <input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} />
                               </div>
-                              <textarea placeholder="Co se dělalo, poznámky k tréninku..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{gridColumn:'span 2', padding:'8px', borderRadius: '6px', border: '1px solid #ccc', height: '60px'}} />
-                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'12px', borderRadius:'6px', fontWeight: 'bold', cursor: 'pointer'}}>Uložit do deníku</button>
+                              <div style={{gridColumn: 'span 2'}}>
+                                <label style={styles.formLabel}>Typ události:</label>
+                                <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={styles.inputSmall}>
+                                  <option value="Jízdárna">Jízdárna</option><option value="Lonž">Lonž</option>
+                                  <option value="Terén">Terén</option><option value="Skoky">Skoky</option>
+                                  <option value="Závody">Závody</option><option value="Odpočinek">Odpočinek</option>
+                                  <option value="Veterinář">Veterinář / Zuby / Fyzio</option><option value="Kovář">Kovář</option>
+                                </select>
+                              </div>
+                              
+                              <div style={{gridColumn: 'span 1'}}>
+                                <label style={styles.formLabel}>Náklady (Kč):</label>
+                                <input type="number" placeholder="0" onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
+                              </div>
+                              <div style={{gridColumn: 'span 1'}}>
+                                <label style={styles.formLabel}>Jak to šlo?</label>
+                                <select onChange={e=>setNewLog({...newLog, rating:parseInt(e.target.value)})} style={styles.inputSmall}>
+                                  <option value="0">Bez hodnocení</option><option value="5">⭐⭐⭐⭐⭐</option><option value="3">⭐⭐⭐</option><option value="1">⭐</option>
+                                </select>
+                              </div>
+                              
+                              <div style={{gridColumn:'span 2'}}>
+                                <label style={styles.formLabel}>Příloha / Zpráva (JPG, PDF):</label>
+                                <input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{...styles.inputSmall, background: '#fff'}} />
+                              </div>
+                              <div style={{gridColumn:'span 2'}}>
+                                <label style={styles.formLabel}>Poznámky k tréninku:</label>
+                                <textarea placeholder="Co se dělalo..." onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{...styles.inputSmall, height: '60px'}} />
+                              </div>
+                              <button type="submit" style={{gridColumn:'span 2', background:'#0288d1', color:'#fff', border:'none', padding:'10px', borderRadius:'6px', fontWeight: 'bold'}}>Uložit záznam do deníku</button>
                             </form>
 
-                            <h5 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Předchozí záznamy:</h5>
-                            {diaryLogs.map(log => (
-                              <div key={log.id} style={{fontSize:'0.85rem', padding:'12px', background: '#fff', borderRadius: '8px', borderLeft:`4px solid ${getTypeColor(log.training_type)}`, marginBottom: '10px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)'}}>
-                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
-                                  <strong style={{fontSize: '1rem', color: '#333'}}>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
-                                  <button onClick={() => deleteDiaryLog(log.id, h.id)} style={{background:'none', border:'none', color:'#d32f2f', cursor:'pointer', fontSize:'0.8rem'}}>Smazat</button>
+                            <h4 style={{margin: '15px 0 10px 0', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>Historie záznamů</h4>
+                            {horseLogs.length === 0 ? <p style={{fontSize: '0.85rem', color: '#888'}}>Žádné záznamy.</p> : horseLogs.map(log => (
+                              <div key={log.id} style={{fontSize:'0.85rem', padding:'10px', borderLeft:`3px solid ${getHorseColor(h.id)}`, background: '#fff', marginBottom: '8px', borderRadius: '4px'}}>
+                                <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '3px'}}>
+                                  <strong>{new Date(log.date).toLocaleDateString()} - {log.training_type}</strong>
+                                  <button onClick={() => deleteDiaryLog(log.id)} style={{background:'none', border:'none', color:'#e57373', cursor:'pointer', fontSize:'0.7rem'}}>Smazat</button>
                                 </div>
-                                {log.rating > 0 && <div style={{marginBottom: '5px'}}>{'⭐'.repeat(log.rating)}</div>}
-                                <div style={{color:'#555', whiteSpace: 'pre-wrap', lineHeight: '1.4'}}>{log.notes}</div>
-                                <div style={{display: 'flex', gap: '15px', marginTop: '8px', borderTop: '1px dashed #eee', paddingTop: '8px'}}>
+                                {log.rating > 0 && <div style={{marginBottom: '3px'}}>{'⭐'.repeat(log.rating)}</div>}
+                                <div style={{color:'#666', whiteSpace: 'pre-wrap'}}>{log.notes}</div>
+                                <div style={{display: 'flex', gap: '10px', marginTop: '5px'}}>
                                   {log.cost > 0 && <span style={{color:'#2e7d32', fontWeight:'bold'}}>💰 {log.cost} Kč</span>}
-                                  {log.attachment_url && <a href={log.attachment_url} target="_blank" rel="noopener noreferrer" style={{color:'#0288d1', fontWeight: 'bold', textDecoration: 'none'}}>📎 Otevřít přílohu</a>}
+                                  {log.attachment_url && <a href={log.attachment_url} target="_blank" style={{color:'#0288d1'}}>📎 Otevřít přílohu</a>}
                                 </div>
                               </div>
                             ))}
@@ -405,14 +450,51 @@ export default function StajoveImperium() {
 
               {isEditingHorse && (
                 <div style={styles.formCard}>
-                  <h3>{currentHorseId ? 'Upravit' : 'Nový kůň'}</h3>
-                  <form onSubmit={handleSaveHorse} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-                    <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files[0])} />
-                    <input placeholder="Jméno" value={horseData.name} onChange={e=>setHorseData({...horseData, name:e.target.value})} style={styles.input} required />
-                    <input type="date" value={horseData.vaccination_date} onChange={e=>setHorseData({...horseData, vaccination_date:e.target.value})} style={styles.input} />
-                    <input type="date" value={horseData.farrier_date} onChange={e=>setHorseData({...horseData, farrier_date:e.target.value})} style={styles.input} />
-                    <button type="submit" style={styles.btnPrimary}>Uložit koně</button>
-                    <button type="button" onClick={resetHorseForm} style={styles.btnOutline}>Zrušit</button>
+                  <h3>{currentHorseId ? 'Upravit kartu koně' : 'Nová karta koně'}</h3>
+                  <form onSubmit={handleSaveHorse} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
+                    
+                    <div style={{background: '#e3f2fd', padding: '10px', borderRadius: '6px', border: '1px solid #90caf9'}}>
+                      <label style={{...styles.formLabel, color: '#0288d1'}}>Profilová fotka (JPG/PNG)</label>
+                      <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files[0])} style={{...styles.inputSmall, background: '#fff', marginTop: '5px'}} />
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Jméno koně *</label>
+                      <input placeholder="Zadejte jméno koně" value={horseData.name} onChange={e=>setHorseData({...horseData, name:e.target.value})} style={styles.input} required />
+                    </div>
+
+                    <div style={{display: 'flex', gap: '10px'}}>
+                      <div style={{...styles.formGroup, flex: 1}}>
+                        <label style={styles.formLabel}>Rok narození</label>
+                        <input type="number" placeholder="Např. 2018" value={horseData.birth_year} onChange={e=>setHorseData({...horseData, birth_year:e.target.value})} style={styles.input} />
+                      </div>
+                      <div style={{...styles.formGroup, flex: 1}}>
+                        <label style={styles.formLabel}>ID / Průkaz</label>
+                        <input placeholder="Číslo průkazu" value={horseData.horse_id_number} onChange={e=>setHorseData({...horseData, horse_id_number:e.target.value})} style={styles.input} />
+                      </div>
+                    </div>
+
+                    <h4 style={{margin: '10px 0 0 0', color: '#5d4037'}}>Zdraví a Očkování</h4>
+                    <div style={{display: 'flex', gap: '10px'}}>
+                      <div style={{...styles.formGroup, flex: 1}}>
+                        <label style={styles.formLabel}>Platnost očkování do:</label>
+                        <input type="date" value={horseData.vaccination_date} onChange={e=>setHorseData({...horseData, vaccination_date:e.target.value})} style={styles.input} />
+                      </div>
+                      <div style={{...styles.formGroup, flex: 1}}>
+                        <label style={styles.formLabel}>Další kovář v termínu:</label>
+                        <input type="date" value={horseData.farrier_date} onChange={e=>setHorseData({...horseData, farrier_date:e.target.value})} style={styles.input} />
+                      </div>
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Krmná dávka / Poznámky ke koni:</label>
+                      <textarea placeholder="Dieta, alergie, dávky..." value={horseData.diet_notes} onChange={e=>setHorseData({...horseData, diet_notes:e.target.value})} style={{...styles.input, height: '60px'}} />
+                    </div>
+
+                    <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+                      <button type="submit" style={{...styles.btnPrimary, flex: 2, margin: 0}}>Uložit kartu koně</button>
+                      <button type="button" onClick={resetHorseForm} style={{...styles.btnOutline, flex: 1, margin: 0}}>Zrušit</button>
+                    </div>
                   </form>
                 </div>
               )}
@@ -437,14 +519,15 @@ const styles = {
   contentGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' },
   card: { backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' },
   sideCard: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', borderTop: '5px solid #5d4037' },
-  horseCard: { background: '#fff', borderRadius: '12px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #5d4037' },
+  horseCard: { background: '#fff', borderRadius: '12px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   formCard: { backgroundColor: '#fafafa', padding: '20px', borderRadius: '12px', border: '1px solid #ddd' },
-  infoRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0' },
+  infoRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: '0.9rem' },
   input: { padding: '10px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' },
+  formLabel: { fontSize: '0.8rem', fontWeight: 'bold', color: '#666', marginBottom: '-2px' },
   btnAdd: { background: '#4caf50', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', fontWeight: 'bold' },
   btnPrimary: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold' },
-  btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px' },
+  btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px', width: '100%' },
   btnIconEdit: { background: '#e3f2fd', border: 'none', padding: '5px', borderRadius: '4px' },
   btnIconDelete: { background: '#ffebee', border: 'none', padding: '5px', borderRadius: '4px' },
   btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', width: '100%', marginTop: '10px' },
