@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import React from 'react';
 
-// Napojení na úplně stejnou databázi jako hlavní závodní aplikace
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -13,24 +12,24 @@ export default function StajoveImperium() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Přihlašovací stavy
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
 
-  // Stavy pro koně
   const [myHorses, setMyHorses] = useState([]);
   const [isEditingHorse, setIsEditingHorse] = useState(false);
   const [currentHorseId, setCurrentHorseId] = useState(null);
   
-  // Formulář koně (obsahuje i nové plánované kolonky)
+  // Přibyl stav pro nahrávanou fotku a url do databáze
+  const [photoFile, setPhotoFile] = useState(null);
   const [horseData, setHorseData] = useState({
     name: '',
     birth_year: '',
     horse_id_number: '',
-    vaccination_date: '', // Připraveno pro databázi
-    farrier_date: '',     // Připraveno pro databázi
-    diet_notes: ''        // Připraveno pro databázi
+    vaccination_date: '', 
+    farrier_date: '',     
+    diet_notes: '',
+    photo_url: ''
   });
 
   useEffect(() => {
@@ -42,12 +41,8 @@ export default function StajoveImperium() {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser) {
         setUser(authUser);
-        
-        // Načtení profilu
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
-        
-        // Načtení koní majitele
         await fetchMyHorses(authUser.id);
       }
     } finally {
@@ -56,7 +51,7 @@ export default function StajoveImperium() {
   }
 
   async function fetchMyHorses(userId) {
-    const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId);
+    const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId).order('created_at', { ascending: false });
     setMyHorses(horses || []);
   }
 
@@ -87,25 +82,39 @@ export default function StajoveImperium() {
   const handleSaveHorse = async (e) => {
     e.preventDefault();
     
-    // ZATÍM UKLÁDÁME JEN EXISTUJÍCÍ SLOUPCE (name, birth_year, horse_id_number)
-    // Jakmile přidáš do Supabase nové sloupce, přidáme je i sem!
+    let finalPhotoUrl = horseData.photo_url;
+
+    // Pokud uživatel vybral novou fotku, nejprve ji nahrajeme do Supabase
+    if (photoFile) {
+      const fileExt = photoFile.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('horse_photos').upload(fileName, photoFile);
+      
+      if (uploadError) {
+        alert('Chyba při nahrávání fotky: ' + uploadError.message);
+        return;
+      }
+      
+      const { data: urlData } = supabase.storage.from('horse_photos').getPublicUrl(fileName);
+      finalPhotoUrl = urlData.publicUrl;
+    }
+
     const payload = {
       owner_id: user.id,
       name: horseData.name,
       birth_year: horseData.birth_year,
       horse_id_number: horseData.horse_id_number,
-      vaccination_date: horseData.vaccination_date, 
-      farrier_date: horseData.farrier_date,
-      diet_notes: horseData.diet_notes
+      vaccination_date: horseData.vaccination_date || null, 
+      farrier_date: horseData.farrier_date || null,
+      diet_notes: horseData.diet_notes,
+      photo_url: finalPhotoUrl
     };
 
     if (currentHorseId) {
-      // Aktualizace existujícího
       const { error } = await supabase.from('horses').update(payload).eq('id', currentHorseId);
       if (error) alert(error.message);
       else alert('Karta koně aktualizována!');
     } else {
-      // Vytvoření nového
       const { error } = await supabase.from('horses').insert([payload]);
       if (error) alert(error.message);
       else alert('Nový kůň ustájen!');
@@ -120,10 +129,12 @@ export default function StajoveImperium() {
       name: h.name || '',
       birth_year: h.birth_year || '',
       horse_id_number: h.horse_id_number || '',
-      vaccination_date: h.vaccination_date || '', // Načte se, až to bude v DB
-      farrier_date: h.farrier_date || '',         // Načte se, až to bude v DB
-      diet_notes: h.diet_notes || ''              // Načte se, až to bude v DB
+      vaccination_date: h.vaccination_date || '',
+      farrier_date: h.farrier_date || '',         
+      diet_notes: h.diet_notes || '',
+      photo_url: h.photo_url || ''
     });
+    setPhotoFile(null);
     setCurrentHorseId(h.id);
     setIsEditingHorse(true);
   };
@@ -137,7 +148,8 @@ export default function StajoveImperium() {
   };
 
   const resetHorseForm = () => {
-    setHorseData({ name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '' });
+    setHorseData({ name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '', photo_url: '' });
+    setPhotoFile(null);
     setCurrentHorseId(null);
     setIsEditingHorse(false);
   };
@@ -146,7 +158,6 @@ export default function StajoveImperium() {
 
   return (
     <div style={styles.container}>
-      {/* Hlavní navigace pro modul Stáje */}
       {user && (
         <div style={styles.topNav}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -177,16 +188,13 @@ export default function StajoveImperium() {
       ) : (
         <div style={styles.mainContent}>
           
-          {/* Uvítací panel majitele */}
           <div style={styles.welcomePanel}>
             <h2 style={{ margin: '0 0 5px 0', color: '#5d4037' }}>Vítejte, {profile?.full_name || 'Neznámý jezdci'}!</h2>
             <p style={{ margin: 0, color: '#666' }}>Tady je vaše osobní centrála pro správu koňských parťáků. Plánujte tréninky, hlídejte očkování a mějte vše na jednom místě.</p>
           </div>
 
-          {/* Rozvržení: Seznam koní vs. Formulář */}
           <div style={styles.grid}>
             
-            {/* Levá část: Seznam mých koní */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ margin: 0, color: '#3e2723', fontSize: '1.5rem' }}>Obyvatelé vaší stáje</h3>
@@ -204,10 +212,19 @@ export default function StajoveImperium() {
                 <div style={styles.horseList}>
                   {myHorses.map(h => (
                     <div key={h.id} style={styles.horseCard}>
-                      <div style={styles.horseCardHeader}>
-                        <div>
-                          <h4 style={{ margin: '0 0 5px 0', fontSize: '1.3rem', color: '#5d4037' }}>{h.name}</h4>
-                          <span style={{ fontSize: '0.85rem', color: '#888', background: '#eee', padding: '3px 8px', borderRadius: '12px' }}>ID: {h.horse_id_number || 'Nezadáno'}</span>
+                      
+                      {/* NOVÉ: Zobrazení profilové fotky koně */}
+                      <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', alignItems: 'center' }}>
+                        <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: '#eee', overflow: 'hidden', border: '3px solid #5d4037', flexShrink: 0 }}>
+                          {h.photo_url ? (
+                            <img src={h.photo_url} alt={h.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>🐴</div>
+                          )}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h4 style={{ margin: '0 0 5px 0', fontSize: '1.4rem', color: '#5d4037' }}>{h.name}</h4>
+                          <span style={{ fontSize: '0.85rem', color: '#888', background: '#f5f5f5', padding: '3px 8px', borderRadius: '12px' }}>ID: {h.horse_id_number || 'Nezadáno'}</span>
                         </div>
                         <div style={styles.cardActions}>
                           <button onClick={() => editHorse(h)} style={styles.btnIconEdit}>✏️</button>
@@ -217,10 +234,8 @@ export default function StajoveImperium() {
                       
                       <div style={styles.horseCardBody}>
                         <div style={styles.infoRow}><strong>Rok narození:</strong> <span>{h.birth_year || '-'}</span></div>
-                        
-                        {/* Tyto hodnoty zatím budou prázdné, než je přidáme do DB */}
-                        <div style={styles.infoRow}><strong>💉 Očkování vyprší:</strong> <span style={{color: '#d32f2f'}}>{h.vaccination_date || 'Nenastaveno'}</span></div>
-                        <div style={styles.infoRow}><strong>⚒️ Kovář naplánován:</strong> <span style={{color: '#f57f17'}}>{h.farrier_date || 'Nenastaveno'}</span></div>
+                        <div style={styles.infoRow}><strong>💉 Očkování vyprší:</strong> <span style={{color: '#d32f2f', fontWeight: 'bold'}}>{h.vaccination_date ? new Date(h.vaccination_date).toLocaleDateString('cs-CZ') : 'Nenastaveno'}</span></div>
+                        <div style={styles.infoRow}><strong>⚒️ Kovář naplánován:</strong> <span style={{color: '#f57f17', fontWeight: 'bold'}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString('cs-CZ') : 'Nenastaveno'}</span></div>
                       </div>
                     </div>
                   ))}
@@ -228,7 +243,6 @@ export default function StajoveImperium() {
               )}
             </div>
 
-            {/* Pravá část: Formulář (Karta koně) - Zobrazí se jen když přidáváme nebo upravujeme */}
             {isEditingHorse && (
               <div style={styles.formCard}>
                 <h3 style={{ margin: '0 0 20px 0', color: '#5d4037', borderBottom: '2px solid #eee', paddingBottom: '10px' }}>
@@ -237,27 +251,32 @@ export default function StajoveImperium() {
                 
                 <form onSubmit={handleSaveHorse} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                   
-                  {/* Základní údaje (už fungují) */}
+                  {/* NOVÉ: Nahrávání fotky */}
+                  <div style={{...styles.formGroup, background: '#e3f2fd', padding: '10px', borderRadius: '8px', border: '1px solid #90caf9'}}>
+                    <label style={{...styles.formLabel, color: '#0288d1'}}>Profilová fotka (JPG/PNG)</label>
+                    <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files[0])} style={{fontSize: '0.9rem'}} />
+                    {horseData.photo_url && !photoFile && <span style={{fontSize: '0.8rem', color: '#666', marginTop: '5px'}}>Kůň už má fotku nahranou.</span>}
+                  </div>
+
                   <div style={styles.formGroup}>
                     <label style={styles.formLabel}>Jméno koně *</label>
                     <input type="text" value={horseData.name} onChange={e => setHorseData({...horseData, name: e.target.value})} style={styles.input} required />
                   </div>
                   
-                  <div style={{ display: 'flex', gap: '15px' }}>
-                    <div style={{...styles.formGroup, flex: 1}}>
+                  <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                    <div style={{...styles.formGroup, flex: 1, minWidth: '120px'}}>
                       <label style={styles.formLabel}>Rok narození</label>
                       <input type="number" value={horseData.birth_year} onChange={e => setHorseData({...horseData, birth_year: e.target.value})} style={styles.input} />
                     </div>
-                    <div style={{...styles.formGroup, flex: 1}}>
-                      <label style={styles.formLabel}>ID / Číslo průkazu</label>
+                    <div style={{...styles.formGroup, flex: 1, minWidth: '120px'}}>
+                      <label style={styles.formLabel}>ID / Průkaz</label>
                       <input type="text" value={horseData.horse_id_number} onChange={e => setHorseData({...horseData, horse_id_number: e.target.value})} style={styles.input} />
                     </div>
                   </div>
 
-                  <hr style={{ border: 'none', borderTop: '1px dashed #ccc', margin: '10px 0' }} />
+                  <hr style={{ border: 'none', borderTop: '1px dashed #ccc', margin: '5px 0' }} />
                   
-                  {/* Nové funkce - připraveno pro budoucí propojení s DB */}
-                  <h4 style={{ margin: 0, color: '#0288d1' }}>Zdravotní a stájový deník (Brzy aktivní)</h4>
+                  <h4 style={{ margin: 0, color: '#0288d1' }}>Zdravotní a stájový deník</h4>
                   
                   <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
                     <div style={{...styles.formGroup, flex: 1, minWidth: '150px'}}>
@@ -295,7 +314,6 @@ export default function StajoveImperium() {
   );
 }
 
-// STYLY PRO MODUL STÁJE
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', fontFamily: 'sans-serif' },
   loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5d4037', fontSize: '1.2rem', fontWeight: 'bold' },
@@ -317,7 +335,7 @@ const styles = {
   horseCard: { background: '#fff', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #5d4037', transition: 'transform 0.2s' },
   horseCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' },
   cardActions: { display: 'flex', gap: '5px' },
-  horseCardBody: { display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', color: '#333' },
+  horseCardBody: { display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.95rem', color: '#333', background: '#fafafa', padding: '10px', borderRadius: '8px' },
   infoRow: { display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '4px' },
   
   formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
