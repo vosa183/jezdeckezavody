@@ -134,6 +134,26 @@ export default function StajoveImperium() {
     }
   };
 
+  // NOVÁ FUNKCE: Prodloužení licence o 1 rok
+  const handleExtendLicense = async (clubId, currentValidUntil, clubName) => {
+    const currentDate = new Date(currentValidUntil);
+    currentDate.setFullYear(currentDate.getFullYear() + 1); // Přičteme přesně jeden rok
+    const newDateStr = currentDate.toISOString().split('T')[0];
+
+    if (confirm(`Opravdu chcete prodloužit licenci pro ${clubName} o další rok (do ${currentDate.toLocaleDateString('cs-CZ')})?`)) {
+      const { error } = await supabase
+        .from('clubs')
+        .update({ license_valid_until: newDateStr })
+        .eq('id', clubId);
+        
+      if (error) {
+        alert('Chyba při prodlužování licence: ' + error.message);
+      } else {
+        fetchClubs(); // Načteme aktualizovaný seznam
+      }
+    }
+  };
+
   const getHorseColor = (horseId) => {
     const index = myHorses.findIndex(h => h.id === horseId);
     return HORSE_COLORS[index % HORSE_COLORS.length] || '#333';
@@ -389,26 +409,38 @@ export default function StajoveImperium() {
 
           <div style={styles.card}>
             <h3 style={{margin: '0 0 15px 0', borderBottom: '2px solid #eee', paddingBottom: '10px'}}>Registrované kluby v systému</h3>
-            <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left'}}>
-              <thead>
-                <tr style={{background: '#f9f9f9'}}>
-                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Název klubu</th>
-                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Licence platná do</th>
-                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>ID (Pro registraci)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clubs.map(c => (
-                  <tr key={c.id} style={{borderBottom: '1px solid #eee'}}>
-                    <td style={{padding: '12px', fontWeight: 'bold'}}>{c.name}</td>
-                    <td style={{padding: '12px', color: new Date(c.license_valid_until) < new Date() ? 'red' : 'green'}}>
-                      {new Date(c.license_valid_until).toLocaleDateString('cs-CZ')}
-                    </td>
-                    <td style={{padding: '12px', fontSize: '0.8rem', fontFamily: 'monospace', color: '#888'}}>{c.id}</td>
+            <div style={{overflowX: 'auto'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '600px'}}>
+                <thead>
+                  <tr style={{background: '#f9f9f9'}}>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Název klubu</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Licence platná do</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>ID (Pro registraci)</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd', textAlign: 'center'}}>Akce</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {clubs.map(c => (
+                    <tr key={c.id} style={{borderBottom: '1px solid #eee'}}>
+                      <td style={{padding: '12px', fontWeight: 'bold'}}>{c.name}</td>
+                      <td style={{padding: '12px', color: new Date(c.license_valid_until) < new Date() ? 'red' : 'green'}}>
+                        {new Date(c.license_valid_until).toLocaleDateString('cs-CZ')}
+                      </td>
+                      <td style={{padding: '12px', fontSize: '0.8rem', fontFamily: 'monospace', color: '#888'}}>{c.id}</td>
+                      <td style={{padding: '12px', textAlign: 'center'}}>
+                        {/* NOVÉ TLAČÍTKO PRO PRODLOUŽENÍ */}
+                        <button 
+                          onClick={() => handleExtendLicense(c.id, c.license_valid_until, c.name)} 
+                          style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
+                        >
+                          + Prodloužit o rok
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -581,7 +613,7 @@ export default function StajoveImperium() {
                     <div style={{display: 'flex', gap: '10px'}}>
                       <div style={{...styles.formGroup, flex: 1}}>
                         <label style={styles.formLabel}>Rok narození</label>
-                        <input type="number" placeholder="Např. ročník" value={horseData.birth_year} onChange={e=>setHorseData({...horseData, birth_year:e.target.value})} style={styles.input} />
+                        <input type="number" placeholder="Např. 2018" value={horseData.birth_year} onChange={e=>setHorseData({...horseData, birth_year:e.target.value})} style={styles.input} />
                       </div>
                       <div style={{...styles.formGroup, flex: 1}}>
                         <label style={styles.formLabel}>ID / Průkaz</label>
