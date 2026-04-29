@@ -54,8 +54,28 @@ export default function StajoveImperium() {
   const [clubs, setClubs] = useState([]);
   const [newClubName, setNewClubName] = useState('');
   const [newClubLicenseDate, setNewClubLicenseDate] = useState('');
+  
+  // ZVACÍ SYSTÉM (INVITE LINI)
+  const [inviteClubId, setInviteClubId] = useState(null);
+  const [inviteClubName, setInviteClubName] = useState('');
 
-  useEffect(() => { checkUser(); }, []);
+  useEffect(() => { 
+    // Fáze H: Zjištění, zda uživatel přišel přes zvací odkaz
+    const urlParams = new URLSearchParams(window.location.search);
+    const klub = urlParams.get('klub');
+    if (klub) {
+      setInviteClubId(klub);
+      setIsSignUp(true); // Rovnou mu otevřeme registraci
+      
+      // Zkusíme zjistit jméno klubu pro hezčí uvítání
+      supabase.from('clubs').select('name').eq('id', klub).single()
+        .then(({ data }) => {
+          if (data) setInviteClubName(data.name);
+        });
+    }
+    
+    checkUser(); 
+  }, []);
 
   async function checkUser() {
     try {
@@ -103,13 +123,18 @@ export default function StajoveImperium() {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
       else if (data?.user) {
-        // Nový uživatel spadne do Výchozího klubu, pokud ho nezaložil superadmin
+        // Pokud přišel přes odkaz, dáme mu jeho klub, jinak výchozí nulu
+        const finalClubId = inviteClubId ? inviteClubId : '00000000-0000-0000-0000-000000000000';
+        
         await supabase.from('profiles').insert([{ 
             id: data.user.id, 
             email: email, 
             license_type: 'Hobby',
-            club_id: '00000000-0000-0000-0000-000000000000'
+            club_id: finalClubId
         }]);
+        
+        // Vyčistíme URL od parametru, aby ho to tam nestrašilo
+        window.history.replaceState({}, document.title, window.location.pathname);
         window.location.reload();
       }
     } else {
@@ -134,24 +159,24 @@ export default function StajoveImperium() {
     }
   };
 
-  // NOVÁ FUNKCE: Prodloužení licence o 1 rok
   const handleExtendLicense = async (clubId, currentValidUntil, clubName) => {
     const currentDate = new Date(currentValidUntil);
-    currentDate.setFullYear(currentDate.getFullYear() + 1); // Přičteme přesně jeden rok
+    currentDate.setFullYear(currentDate.getFullYear() + 1); 
     const newDateStr = currentDate.toISOString().split('T')[0];
 
     if (confirm(`Opravdu chcete prodloužit licenci pro ${clubName} o další rok (do ${currentDate.toLocaleDateString('cs-CZ')})?`)) {
-      const { error } = await supabase
-        .from('clubs')
-        .update({ license_valid_until: newDateStr })
-        .eq('id', clubId);
-        
-      if (error) {
-        alert('Chyba při prodlužování licence: ' + error.message);
-      } else {
-        fetchClubs(); // Načteme aktualizovaný seznam
-      }
+      const { error } = await supabase.from('clubs').update({ license_valid_until: newDateStr }).eq('id', clubId);
+      if (error) alert('Chyba při prodlužování licence: ' + error.message);
+      else fetchClubs(); 
     }
+  };
+
+  // Zkopírování odkazu do schránky
+  const copyInviteLink = (clubId, clubName) => {
+    const link = `${window.location.origin}${window.location.pathname}?klub=${clubId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      alert(`Zvací odkaz pro ${clubName} byl zkopírován do schránky! Můžete ho vložit do e-mailu.`);
+    });
   };
 
   const getHorseColor = (horseId) => {
@@ -377,13 +402,31 @@ export default function StajoveImperium() {
 
       {!user ? (
         <div style={{...styles.card, maxWidth: '400px', margin: '40px auto'}}>
-          <h2 style={{textAlign: 'center', color: '#5d4037'}}>Vítejte ve stáji</h2>
+          <div style={{textAlign: 'center', marginBottom: '20px'}}>
+            {inviteClubId ? (
+              <div style={{background: '#e8f5e9', padding: '15px', borderRadius: '8px', border: '2px solid #4caf50'}}>
+                <h3 style={{color: '#2e7d32', margin: '0 0 5px 0'}}>Speciální pozvánka!</h3>
+                <p style={{margin: 0, color: '#333'}}>Registrujete se do stáje: <strong>{inviteClubName || 'Načítám...'}</strong></p>
+              </div>
+            ) : (
+              <>
+                <h1 style={{color: '#5d4037', margin: '0 0 10px 0'}}>Vítejte ve stáji</h1>
+                <p style={{color: '#888', margin: 0}}>Pro správu svých koní se prosím přihlaste.</p>
+              </>
+            )}
+          </div>
+          
           <form onSubmit={handleAuth} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
             <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
             <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT' : 'VSTOUPIT'}</button>
+            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'DOKONČIT REGISTRACI' : 'VSTOUPIT'}</button>
           </form>
-          <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>{isSignUp ? 'Přihlásit se' : 'Nová registrace'}</button>
+          
+          {!inviteClubId && (
+            <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
+              {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
+            </button>
+          )}
         </div>
       ) : adminView ? (
         
@@ -410,13 +453,13 @@ export default function StajoveImperium() {
           <div style={styles.card}>
             <h3 style={{margin: '0 0 15px 0', borderBottom: '2px solid #eee', paddingBottom: '10px'}}>Registrované kluby v systému</h3>
             <div style={{overflowX: 'auto'}}>
-              <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '600px'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px'}}>
                 <thead>
                   <tr style={{background: '#f9f9f9'}}>
                     <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Název klubu</th>
                     <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Licence platná do</th>
-                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>ID (Pro registraci)</th>
-                    <th style={{padding: '12px', borderBottom: '1px solid #ddd', textAlign: 'center'}}>Akce</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Akce / Správa</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Zvací odkaz (Pro klienta)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -426,14 +469,20 @@ export default function StajoveImperium() {
                       <td style={{padding: '12px', color: new Date(c.license_valid_until) < new Date() ? 'red' : 'green'}}>
                         {new Date(c.license_valid_until).toLocaleDateString('cs-CZ')}
                       </td>
-                      <td style={{padding: '12px', fontSize: '0.8rem', fontFamily: 'monospace', color: '#888'}}>{c.id}</td>
-                      <td style={{padding: '12px', textAlign: 'center'}}>
-                        {/* NOVÉ TLAČÍTKO PRO PRODLOUŽENÍ */}
+                      <td style={{padding: '12px'}}>
                         <button 
                           onClick={() => handleExtendLicense(c.id, c.license_valid_until, c.name)} 
                           style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
                         >
                           + Prodloužit o rok
+                        </button>
+                      </td>
+                      <td style={{padding: '12px'}}>
+                        <button 
+                          onClick={() => copyInviteLink(c.id, c.name)} 
+                          style={{background: '#0288d1', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
+                        >
+                          🔗 Kopírovat odkaz
                         </button>
                       </td>
                     </tr>
