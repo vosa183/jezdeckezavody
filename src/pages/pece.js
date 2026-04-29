@@ -28,44 +28,63 @@ export default function PortalPece() {
   });
 
   useEffect(() => { 
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('invite');
-    if (token) {
-      setInviteToken(token);
-      setIsSignUp(true);
-      checkInviteToken(token);
-    }
-    checkUser(); 
+    checkUserAndToken(); 
   }, []);
 
-  async function checkInviteToken(token) {
-    const { data } = await supabase.from('invitations').select('*').eq('token', token).single();
-    if (data && !data.is_accepted) setEmail(data.email); 
-  }
-
-  async function checkUser() {
+  async function checkUserAndToken() {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('invite');
+      
       const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      // SCÉNÁŘ 1: Uživatel už je přihlášený a klikl na pozvánku
+      if (authUser && token) {
+        const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
+        
+        if (invData && !invData.is_accepted && invData.email === authUser.email) {
+          // Zkontrolujeme, jestli už ve stáji náhodou není (pojistka)
+          const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', authUser.id).single();
+          if (!existingMember) {
+            await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: authUser.id, role: invData.role }]);
+          }
+          await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          alert('Byli jste úspěšně přiřazeni k nové stáji!');
+          
+          // Vyčistíme URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } 
+      // SCÉNÁŘ 2: Není přihlášený, ale má pozvánku v URL
+      else if (!authUser && token) {
+        setInviteToken(token);
+        setIsSignUp(true); // Defaultně mu nabídneme registraci, ale MŮŽE to přepnout
+        const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
+        if (invData && !invData.is_accepted) setEmail(invData.email);
+      }
+
+      // Načtení dat profilu a ordinace, pokud je přihlášený
       if (authUser) {
         setUser(authUser);
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
         
         const { data: memberships } = await supabase.from('club_members').select('club_id, role, clubs(name)').eq('user_id', authUser.id);
-          
         if (memberships && memberships.length > 0) {
           setMyMemberships(memberships);
           const clubIds = memberships.map(m => m.club_id);
-          
           const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
           setClientHorses(horses || []);
         }
       }
-    } finally { setLoading(false); }
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   const handleAuth = async (e) => {
     e.preventDefault(); setLoading(true);
+    
     if (isSignUp) {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
@@ -78,13 +97,25 @@ export default function PortalPece() {
             await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Profi', club_id: invData.club_id }]);
           }
         }
-        window.history.replaceState({}, document.title, window.location.pathname);
-        window.location.reload();
+        window.location.href = window.location.pathname;
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      // PŘIHLÁŠENÍ EXISTUJÍCÍHO ÚČTU (S možností zpracování tokenu)
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) alert('Chybné přihlášení: ' + error.message); 
-      else window.location.reload();
+      else {
+        if (inviteToken && data?.user) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', data.user.id).single();
+            if (!existingMember) {
+              await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: data.user.id, role: invData.role }]);
+            }
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          }
+        }
+        window.location.href = window.location.pathname;
+      }
     }
     setLoading(false);
   };
@@ -153,8 +184,8 @@ export default function PortalPece() {
           <div style={{textAlign: 'center', marginBottom: '20px'}}>
             {inviteToken ? (
               <div style={{background: '#e0f7fa', padding: '15px', borderRadius: '8px', border: '2px solid #00838f'}}>
-                <h3 style={{color: '#00838f', margin: '0 0 5px 0'}}>Připojení do ordinace!</h3>
-                <p style={{margin: 0, color: '#333'}}>Zadejte heslo pro dokončení registrace k vašim pacientům.</p>
+                <h3 style={{color: '#00838f', margin: '0 0 5px 0'}}>Připojení k nové stáji!</h3>
+                <p style={{margin: 0, color: '#333'}}>Založte si účet, nebo se přihlaste ke svému existujícímu účtu pro přijetí pozvánky.</p>
               </div>
             ) : (
               <>
@@ -165,10 +196,15 @@ export default function PortalPece() {
           </div>
           
           <form onSubmit={handleAuth} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-            <input type="email" placeholder="E-mailová adresa" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken} />
+            <input type="email" placeholder="E-mailová adresa" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken && isSignUp} />
             <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'DOKONČIT REGISTRACI' : 'PŘIHLÁSIT DO ORDINACE'}</button>
+            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT A PŘIJMOUT' : 'PŘIHLÁSIT SE'}</button>
           </form>
+
+          {/* Odemknuté přepínání i při pozvánce */}
+          <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
+            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
+          </button>
         </div>
       ) : (
         <div style={styles.mainContent}>
@@ -271,5 +307,6 @@ const styles = {
   input: { padding: '12px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   inputSmall: { padding: '10px', borderRadius: '5px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   btnPrimary: { background: '#00838f', color: '#fff', border: 'none', padding: '14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'background 0.2s' },
+  btnText: { background: 'none', border: 'none', color: '#00838f', textDecoration: 'underline', width: '100%', marginTop: '15px', cursor: 'pointer', fontSize: '0.9rem' },
   emptyState: { textAlign: 'center', padding: '50px', background: '#fff', borderRadius: '12px', color: '#888', border: '1px dashed #ccc' }
 };
