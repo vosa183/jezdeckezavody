@@ -77,24 +77,35 @@ export default function StajoveImperium() {
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
   useEffect(() => { 
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('invite');
-    if (token) {
-      setInviteToken(token);
-      setIsSignUp(true);
-      checkInviteToken(token);
-    }
-    checkUser(); 
+    checkUserAndToken(); 
   }, []);
 
-  async function checkInviteToken(token) {
-    const { data } = await supabase.from('invitations').select('*').eq('token', token).single();
-    if (data && !data.is_accepted) setEmail(data.email); 
-  }
-
-  async function checkUser() {
+  async function checkUserAndToken() {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('invite');
+      
       const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      if (authUser && token) {
+        const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
+        if (invData && !invData.is_accepted && invData.email === authUser.email) {
+          const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', authUser.id).single();
+          if (!existingMember) {
+            await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: authUser.id, role: invData.role }]);
+          }
+          await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          alert('Byli jste úspěšně přiřazeni k nové stáji!');
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } 
+      else if (!authUser && token) {
+        setInviteToken(token);
+        setIsSignUp(true);
+        const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
+        if (invData && !invData.is_accepted) setEmail(invData.email);
+      }
+
       if (authUser) {
         setUser(authUser);
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
@@ -125,7 +136,6 @@ export default function StajoveImperium() {
 
   async function fetchTeam(clubId) {
     if (!clubId) return setTeamMembers([]);
-    // Zobrazíme členy i ve výchozím klubu pro testování
     const { data } = await supabase.from('club_members').select('*, profiles(full_name, email)').eq('club_id', clubId);
     setTeamMembers(data || []);
   }
@@ -167,6 +177,7 @@ export default function StajoveImperium() {
 
   const handleAuth = async (e) => {
     e.preventDefault(); setLoading(true);
+    
     if (isSignUp) {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
@@ -188,12 +199,24 @@ export default function StajoveImperium() {
           await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: role }]);
           await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Hobby', club_id: targetClubId }]);
         }
-        window.history.replaceState({}, document.title, window.location.pathname);
-        window.location.reload();
+        window.location.href = window.location.pathname;
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message); else window.location.reload();
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert('Chybné přihlášení: ' + error.message); 
+      else {
+        if (inviteToken && data?.user) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', data.user.id).single();
+            if (!existingMember) {
+              await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: data.user.id, role: invData.role }]);
+            }
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          }
+        }
+        window.location.href = window.location.pathname;
+      }
     }
     setLoading(false);
   };
@@ -201,13 +224,13 @@ export default function StajoveImperium() {
   const handleInviteMember = async (e) => {
     e.preventDefault();
     if (!profile?.club_id) return alert('Klub nebyl nalezen.');
-    // Odstraněna podmínka pro zablokování defaultního klubu
-    
     const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: inviteNewEmail, role: inviteNewRole, token: token }]);
+    
     if (error) alert('Chyba: ' + error.message);
     else {
-      const link = `${window.location.origin}${window.location.pathname}?invite=${token}`;
+      const path = (inviteNewRole === 'vet' || inviteNewRole === 'farrier') ? '/pece' : '/kone';
+      const link = `${window.location.origin}${path}?invite=${token}`;
       navigator.clipboard.writeText(link).then(() => { alert(`Pozvánka zkopírována do schránky:\n${link}`); setInviteNewEmail(''); });
     }
   };
@@ -493,17 +516,25 @@ export default function StajoveImperium() {
         <div style={{...styles.card, maxWidth: '400px', margin: '40px auto'}}>
           <div style={{textAlign: 'center', marginBottom: '20px'}}>
             {inviteToken ? (
-              <div style={{background: '#e8f5e9', padding: '15px', borderRadius: '8px', border: '2px solid #4caf50'}}><h3 style={{color: '#2e7d32', margin: '0 0 5px 0'}}>Připojení k týmu!</h3><p style={{margin: 0, color: '#333'}}>Zadejte heslo pro dokončení registrace.</p></div>
+              <div style={{background: '#e8f5e9', padding: '15px', borderRadius: '8px', border: '2px solid #4caf50'}}>
+                <h3 style={{color: '#2e7d32', margin: '0 0 5px 0'}}>Připojení k týmu!</h3>
+                <p style={{margin: 0, color: '#333'}}>Založte si účet, nebo se přihlaste ke svému existujícímu účtu pro přijetí pozvánky.</p>
+              </div>
             ) : (
               <><h1 style={{color: '#5d4037', margin: '0 0 10px 0'}}>Vítejte ve stáji</h1><p style={{color: '#888', margin: 0}}>Pro správu svých koní se prosím přihlaste nebo si založte 14denní Trial.</p></>
             )}
           </div>
           <form onSubmit={handleAuth} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-            <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken} />
-            <input type="password" placeholder="Zvolte si heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZALOŽIT TRIAL ZDARMA' : 'VSTOUPIT'}</button>
+            <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken && isSignUp} />
+            <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
+            <button type="submit" style={styles.btnPrimary}>
+              {isSignUp ? (inviteToken ? 'ZAREGISTROVAT A PŘIJMOUT' : 'ZALOŽIT TRIAL ZDARMA') : 'PŘIHLÁSIT SE'}
+            </button>
           </form>
-          {!inviteToken && <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>{isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zkuste 14 dní zdarma.'}</button>}
+          
+          <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
+            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zkuste 14 dní zdarma.'}
+          </button>
         </div>
       ) : adminView ? (
         <div style={{maxWidth: '1200px', margin: '0 auto', padding: '20px'}}>
