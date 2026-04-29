@@ -73,7 +73,6 @@ export default function StajoveImperium() {
   const [licenseKeyInput, setLicenseKeyInput] = useState(''); 
   const [editingClubDates, setEditingClubDates] = useState({});
   
-  // Stavy pro generátor licencí
   const [adminGenEmail, setAdminGenEmail] = useState('');
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
@@ -125,7 +124,8 @@ export default function StajoveImperium() {
   }
 
   async function fetchTeam(clubId) {
-    if (!clubId || clubId === '00000000-0000-0000-0000-000000000000') return setTeamMembers([]);
+    if (!clubId) return setTeamMembers([]);
+    // Zobrazíme členy i ve výchozím klubu pro testování
     const { data } = await supabase.from('club_members').select('*, profiles(full_name, email)').eq('club_id', clubId);
     setTeamMembers(data || []);
   }
@@ -200,7 +200,9 @@ export default function StajoveImperium() {
 
   const handleInviteMember = async (e) => {
     e.preventDefault();
-    if (!profile?.club_id || profile.club_id === '00000000-0000-0000-0000-000000000000') return alert('Pro zvaní členů musíte mít plnohodnotný účet.');
+    if (!profile?.club_id) return alert('Klub nebyl nalezen.');
+    // Odstraněna podmínka pro zablokování defaultního klubu
+    
     const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: inviteNewEmail, role: inviteNewRole, token: token }]);
     if (error) alert('Chyba: ' + error.message);
@@ -210,7 +212,6 @@ export default function StajoveImperium() {
     }
   };
 
-  // UŽIVATEL: Kontaktování podpory
   const handleContactSupport = async () => {
     try {
       alert('Odesílám žádost na podporu...');
@@ -220,7 +221,7 @@ export default function StajoveImperium() {
         body: JSON.stringify({
           subject: `Žádost o licenci - ${myClub?.name || 'Neznámá stáj'}`,
           text: `Uživatel: ${profile?.email}\nStáj: ${myClub?.name || 'Neznámá stáj'}\n\nŽádá o prodloužení nebo zakoupení licence v systému Jezdecké Impérium.`,
-          emails: ['l.vosika@arastea.cz'] // Cílový e-mail pro superadmina
+          emails: ['l.vosika@arastea.cz']
         })
       });
       alert('Vaše žádost byla úspěšně odeslána. Brzy se vám ozveme s fakturou a licenčním klíčem!');
@@ -229,18 +230,15 @@ export default function StajoveImperium() {
     }
   };
 
-  // UŽIVATEL: Uplatnění klíče
   const handleApplyLicense = async (e) => {
     e.preventDefault();
     const key = licenseKeyInput.trim();
     if (!key) return;
 
-    // Najít klíč v databázi
     const { data: keyData, error: keyErr } = await supabase.from('license_keys').select('*').eq('key_code', key).single();
     if (keyErr || !keyData) return alert('Tento licenční klíč neexistuje nebo je neplatný.');
     if (keyData.is_used) return alert('Tento licenční klíč již byl použit.');
 
-    // Výpočet nového data platnosti
     const now = new Date();
     const currentValidUntil = myClub.license_valid_until ? new Date(myClub.license_valid_until) : now;
     const startDate = currentValidUntil > now ? currentValidUntil : now;
@@ -248,7 +246,6 @@ export default function StajoveImperium() {
     startDate.setMonth(startDate.getMonth() + keyData.duration_months);
     const newDateStr = startDate.toISOString();
 
-    // Uložit do DB a spálit klíč
     await supabase.from('clubs').update({ license_valid_until: newDateStr }).eq('id', myClub.id);
     await supabase.from('license_keys').update({ is_used: true }).eq('id', keyData.id);
 
@@ -257,7 +254,6 @@ export default function StajoveImperium() {
     window.location.reload();
   };
 
-  // SUPERADMIN: Generátor klíčů
   const handleGenerateLicenseKey = async (e) => {
     e.preventDefault();
     const randomPart1 = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -279,10 +275,10 @@ export default function StajoveImperium() {
           emails: [adminGenEmail]
         })
       });
-      alert(`Klíč ${keyCode} byl úspěšně vygenerován a odeslán na ${adminGenEmail}.`);
+      alert(`Klíč ${keyCode} byl odeslán na ${adminGenEmail}.`);
       setAdminGenEmail('');
     } catch (err) {
-      alert(`Klíč byl vygenerován (${keyCode}), ale e-mail se NEpodařilo odeslat. Pošlete mu ho ručně.`);
+      alert(`Klíč vygenerován (${keyCode}), ale e-mail se NEpodařilo odeslat.`);
     }
   };
 
