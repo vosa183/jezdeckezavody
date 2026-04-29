@@ -8,29 +8,40 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-export default function PortálPece() {
+export default function PortalPece() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [inviteToken, setInviteToken] = useState(null);
   
-  // Data pro profesionála
-  const [myMemberships, setMyMemberships] = useState([]); // Ve kterých stájích figuruje
-  const [clientHorses, setClientHorses] = useState([]); // Koně klientů
+  const [myMemberships, setMyMemberships] = useState([]); 
+  const [clientHorses, setClientHorses] = useState([]); 
   
-  // Formulář pro zápis
   const [activeHorseId, setActiveHorseId] = useState(null);
   const [docFile, setDocFile] = useState(null);
   const [newLog, setNewLog] = useState({ 
-    date: new Date().toISOString().split('T')[0], 
-    type: 'Veterinář', 
-    notes: '', 
-    cost: 0 
+    date: new Date().toISOString().split('T')[0], type: 'Veterinář', notes: '', cost: 0 
   });
 
-  useEffect(() => { checkUser(); }, []);
+  useEffect(() => { 
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('invite');
+    if (token) {
+      setInviteToken(token);
+      setIsSignUp(true);
+      checkInviteToken(token);
+    }
+    checkUser(); 
+  }, []);
+
+  async function checkInviteToken(token) {
+    const { data } = await supabase.from('invitations').select('*').eq('token', token).single();
+    if (data && !data.is_accepted) setEmail(data.email); 
+  }
 
   async function checkUser() {
     try {
@@ -40,23 +51,13 @@ export default function PortálPece() {
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
         
-        // Zjistíme, do kterých stájí byl uživatel pozván
-        const { data: memberships } = await supabase
-          .from('club_members')
-          .select('club_id, role, clubs(name)')
-          .eq('user_id', authUser.id);
+        const { data: memberships } = await supabase.from('club_members').select('club_id, role, clubs(name)').eq('user_id', authUser.id);
           
         if (memberships && memberships.length > 0) {
           setMyMemberships(memberships);
           const clubIds = memberships.map(m => m.club_id);
           
-          // Načteme všechny koně z těchto stájí
-          const { data: horses } = await supabase
-            .from('horses')
-            .select('*')
-            .in('club_id', clubIds)
-            .order('name', { ascending: true });
-            
+          const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
           setClientHorses(horses || []);
         }
       }
@@ -65,9 +66,26 @@ export default function PortálPece() {
 
   const handleAuth = async (e) => {
     e.preventDefault(); setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) alert('Chybné přihlášení: ' + error.message); 
-    else window.location.reload();
+    if (isSignUp) {
+      const { data, error } = await supabase.auth.signUp({ email, password });
+      if (error) alert(error.message);
+      else if (data?.user) {
+        if (inviteToken) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+            await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: data.user.id, role: invData.role }]);
+            await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Profi', club_id: invData.club_id }]);
+          }
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+        window.location.reload();
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) alert('Chybné přihlášení: ' + error.message); 
+      else window.location.reload();
+    }
     setLoading(false);
   };
 
@@ -80,7 +98,6 @@ export default function PortálPece() {
     e.preventDefault();
     let attUrl = null;
     
-    // Nahrání faktury / zprávy
     if (docFile) {
       const fExt = docFile.name.split('.').pop();
       const fName = `faktura_${Math.random()}.${fExt}`;
@@ -92,14 +109,7 @@ export default function PortálPece() {
     }
 
     const { error } = await supabase.from('horse_diary').insert([{ 
-      horse_id: activeHorseId, 
-      club_id: clubId, 
-      date: newLog.date, 
-      training_type: newLog.type, 
-      notes: newLog.notes, 
-      cost: newLog.cost, 
-      rating: 0, // Veterinář nehodnotí hvězdičkami
-      attachment_url: attUrl 
+      horse_id: activeHorseId, club_id: clubId, date: newLog.date, training_type: newLog.type, notes: newLog.notes, cost: newLog.cost, rating: 0, attachment_url: attUrl 
     }]);
     
     if (error) alert(error.message);
@@ -113,7 +123,6 @@ export default function PortálPece() {
 
   if (loading) return <div style={styles.loader}>Připojuji ordinaci...</div>;
 
-  // Seskupení koní podle stájí pro hezčí výpis
   const horsesByClub = myMemberships.map(membership => {
     return {
       clubName: membership.clubs?.name || 'Neznámá stáj',
@@ -133,7 +142,7 @@ export default function PortálPece() {
         <div style={styles.topNav}>
           <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>🩺 Portál Péče</h2>
           <div style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
-            <span style={{color: '#e0f2f1', fontSize: '0.9rem'}}>{profile?.full_name}</span>
+            <span style={{color: '#e0f2f1', fontSize: '0.9rem'}}>{profile?.full_name || profile?.email}</span>
             <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnNavOutline}>Odhlásit</button>
           </div>
         </div>
@@ -142,14 +151,23 @@ export default function PortálPece() {
       {!user ? (
         <div style={{...styles.card, maxWidth: '400px', margin: '60px auto', borderTop: '5px solid #00838f'}}>
           <div style={{textAlign: 'center', marginBottom: '20px'}}>
-            <h1 style={{color: '#00838f', margin: '0 0 10px 0'}}>Vstup pro specialisty</h1>
-            <p style={{color: '#666', margin: 0, fontSize: '0.9rem'}}>Přihlaste se pro zobrazení svých pacientů a stájí.</p>
+            {inviteToken ? (
+              <div style={{background: '#e0f7fa', padding: '15px', borderRadius: '8px', border: '2px solid #00838f'}}>
+                <h3 style={{color: '#00838f', margin: '0 0 5px 0'}}>Připojení do ordinace!</h3>
+                <p style={{margin: 0, color: '#333'}}>Zadejte heslo pro dokončení registrace k vašim pacientům.</p>
+              </div>
+            ) : (
+              <>
+                <h1 style={{color: '#00838f', margin: '0 0 10px 0'}}>Vstup pro specialisty</h1>
+                <p style={{color: '#666', margin: 0, fontSize: '0.9rem'}}>Přihlaste se pro zobrazení svých pacientů a stájí.</p>
+              </>
+            )}
           </div>
           
           <form onSubmit={handleAuth} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-            <input type="email" placeholder="E-mailová adresa" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
+            <input type="email" placeholder="E-mailová adresa" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken} />
             <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>PŘIHLÁSIT DO ORDINACE</button>
+            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'DOKONČIT REGISTRACI' : 'PŘIHLÁSIT DO ORDINACE'}</button>
           </form>
         </div>
       ) : (
@@ -180,12 +198,11 @@ export default function PortálPece() {
                     <div style={{padding: '15px'}}>
                       {group.horses.map(horse => {
                         const isFormOpen = activeHorseId === horse.id;
-                        
                         return (
                           <div key={horse.id} style={styles.horseItem}>
-                            <div style={{display: 'flex', alignItems: 'center', gap: '15px'}}>
+                            <div style={{display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap'}}>
                               <img src={horse.photo_url || 'https://via.placeholder.com/60?text=KŮŇ'} style={styles.horseImage} />
-                              <div style={{flex: 1}}>
+                              <div style={{flex: 1, minWidth: '200px'}}>
                                 <strong style={{fontSize: '1.1rem', color: '#333'}}>{horse.name}</strong>
                                 <div style={{fontSize: '0.8rem', color: '#666', marginTop: '2px'}}>
                                   Očkování: {horse.vaccination_date ? new Date(horse.vaccination_date).toLocaleDateString() : '?'} | 
@@ -197,49 +214,27 @@ export default function PortálPece() {
                               </button>
                             </div>
 
-                            {/* Formulář pro zápis zákroku */}
                             {isFormOpen && (
                               <form onSubmit={(e) => submitLog(e, group.clubId)} style={styles.logForm}>
                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
                                   <h4 style={{margin: 0, color: '#00838f'}}>Nový záznam pro: {horse.name}</h4>
                                   <button type="button" onClick={() => setActiveHorseId(null)} style={{background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem'}}>×</button>
                                 </div>
-                                
                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px'}}>
-                                  <div>
-                                    <label style={styles.label}>Datum úkonu</label>
-                                    <input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} required />
-                                  </div>
+                                  <div><label style={styles.label}>Datum úkonu</label><input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} required /></div>
                                   <div>
                                     <label style={styles.label}>Kategorie</label>
                                     <select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={styles.inputSmall}>
-                                      <option value="Veterinář">Veterinář</option>
-                                      <option value="Zuby">Zuby</option>
-                                      <option value="Fyzio">Fyzio / Chiro</option>
-                                      <option value="Kovář">Kovář</option>
+                                      <option value="Veterinář">Veterinář</option><option value="Zuby">Zuby</option><option value="Fyzio">Fyzio / Chiro</option><option value="Kovář">Kovář</option>
                                     </select>
                                   </div>
                                 </div>
-
-                                <div style={{marginBottom: '10px'}}>
-                                  <label style={styles.label}>Zpráva / Popis zákroku</label>
-                                  <textarea placeholder="Co se dělalo, případná medikace..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{...styles.inputSmall, height: '70px'}} required />
-                                </div>
-
+                                <div style={{marginBottom: '10px'}}><label style={styles.label}>Zpráva / Popis zákroku</label><textarea placeholder="Co se dělalo, případná medikace..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{...styles.inputSmall, height: '70px'}} required /></div>
                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px'}}>
-                                  <div>
-                                    <label style={styles.label}>Cena (Kč) pro majitele</label>
-                                    <input type="number" placeholder="Např. 1500" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} />
-                                  </div>
-                                  <div>
-                                    <label style={styles.label}>Lékařská zpráva / Faktura (PDF/JPG)</label>
-                                    <input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{...styles.inputSmall, background: '#fff'}} />
-                                  </div>
+                                  <div><label style={styles.label}>Cena (Kč) pro majitele</label><input type="number" placeholder="Např. 1500" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} /></div>
+                                  <div><label style={styles.label}>Faktura / Zpráva (PDF/JPG)</label><input type="file" onChange={e=>setDocFile(e.target.files[0])} style={{...styles.inputSmall, background: '#fff'}} /></div>
                                 </div>
-
-                                <button type="submit" style={{...styles.btnPrimary, width: '100%'}}>
-                                  Odeslat majiteli do deníku
-                                </button>
+                                <button type="submit" style={{...styles.btnPrimary, width: '100%'}}>Odeslat majiteli do deníku</button>
                               </form>
                             )}
                           </div>
