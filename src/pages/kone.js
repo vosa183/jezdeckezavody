@@ -25,9 +25,15 @@ export default function StajoveImperium() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Přihlašování a Registrace
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [inviteToken, setInviteToken] = useState(null);
+  const [invitedEmail, setInvitedEmail] = useState('');
+
+  // Koně a události
   const [myHorses, setMyHorses] = useState([]);
   const [events, setEvents] = useState([]);
   const [isEditingHorse, setIsEditingHorse] = useState(false);
@@ -36,8 +42,11 @@ export default function StajoveImperium() {
   const [horseData, setHorseData] = useState({
     name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '', photo_url: ''
   });
+  
+  // UI stavy
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState('profil'); // 'profil' nebo 'tym'
 
   // DENÍK A KALENDÁŘ
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
@@ -49,33 +58,37 @@ export default function StajoveImperium() {
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
-  // SUPERADMIN A LICENCE
+  // MŮJ TÝM A POZVÁNKY
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [inviteNewEmail, setInviteNewEmail] = useState('');
+  const [inviteNewRole, setInviteNewRole] = useState('trainer');
+
+  // SUPERADMIN
   const [adminView, setAdminView] = useState(false);
   const [clubs, setClubs] = useState([]);
   const [newClubName, setNewClubName] = useState('');
   const [newClubLicenseDate, setNewClubLicenseDate] = useState('');
-  
-  // ZVACÍ SYSTÉM (INVITE LINI)
-  const [inviteClubId, setInviteClubId] = useState(null);
-  const [inviteClubName, setInviteClubName] = useState('');
 
   useEffect(() => { 
-    // Fáze H: Zjištění, zda uživatel přišel přes zvací odkaz
+    // Zpracování pozvánky z URL při načtení stránky
     const urlParams = new URLSearchParams(window.location.search);
-    const klub = urlParams.get('klub');
-    if (klub) {
-      setInviteClubId(klub);
-      setIsSignUp(true); // Rovnou mu otevřeme registraci
-      
-      // Zkusíme zjistit jméno klubu pro hezčí uvítání
-      supabase.from('clubs').select('name').eq('id', klub).single()
-        .then(({ data }) => {
-          if (data) setInviteClubName(data.name);
-        });
+    const token = urlParams.get('invite');
+    if (token) {
+      setInviteToken(token);
+      setIsSignUp(true);
+      checkInviteToken(token);
     }
     
     checkUser(); 
   }, []);
+
+  async function checkInviteToken(token) {
+    const { data, error } = await supabase.from('invitations').select('*').eq('token', token).single();
+    if (data && !data.is_accepted) {
+      setInvitedEmail(data.email);
+      setEmail(data.email); // Předvyplníme formulář
+    }
+  }
 
   async function checkUser() {
     try {
@@ -84,7 +97,11 @@ export default function StajoveImperium() {
         setUser(authUser);
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
-        await fetchMyHorses(authUser.id);
+        
+        if (prof?.club_id) {
+          await fetchMyHorses(prof.club_id);
+          await fetchTeam(prof.club_id);
+        }
         await fetchEvents();
         
         if (prof?.role === 'superadmin') {
@@ -94,13 +111,21 @@ export default function StajoveImperium() {
     } finally { setLoading(false); }
   }
 
+  async function fetchTeam(clubId) {
+    const { data } = await supabase
+      .from('club_members')
+      .select('*, profiles(full_name, email)')
+      .eq('club_id', clubId);
+    setTeamMembers(data || []);
+  }
+
   async function fetchClubs() {
     const { data } = await supabase.from('clubs').select('*').order('created_at', { ascending: false });
     setClubs(data || []);
   }
 
-  async function fetchMyHorses(userId) {
-    const { data: horses } = await supabase.from('horses').select('*').eq('owner_id', userId).order('created_at', { ascending: false });
+  async function fetchMyHorses(clubId) {
+    const { data: horses } = await supabase.from('horses').select('*').eq('club_id', clubId).order('created_at', { ascending: false });
     setMyHorses(horses || []);
     
     if (horses && horses.length > 0) {
@@ -119,21 +144,40 @@ export default function StajoveImperium() {
 
   const handleAuth = async (e) => {
     e.preventDefault(); setLoading(true);
+    
     if (isSignUp) {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
       else if (data?.user) {
-        // Pokud přišel přes odkaz, dáme mu jeho klub, jinak výchozí nulu
-        const finalClubId = inviteClubId ? inviteClubId : '00000000-0000-0000-0000-000000000000';
+        
+        let targetClubId = '00000000-0000-0000-0000-000000000000'; // Výchozí
+        let role = 'owner';
+
+        // Pokud uživatel přišel přes pozvánku
+        if (inviteToken) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            targetClubId = invData.club_id;
+            role = invData.role;
+            
+            // Označit pozvánku jako přijatou
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+            
+            // Zapsat ho jako člena týmu
+            await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: role }]);
+          }
+        } else {
+          // Pokud je to nový zakladatel, zapíšeme ho jako majitele výchozí stáje
+          await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: 'owner' }]);
+        }
         
         await supabase.from('profiles').insert([{ 
             id: data.user.id, 
             email: email, 
             license_type: 'Hobby',
-            club_id: finalClubId
+            club_id: targetClubId
         }]);
         
-        // Vyčistíme URL od parametru, aby ho to tam nestrašilo
         window.history.replaceState({}, document.title, window.location.pathname);
         window.location.reload();
       }
@@ -144,19 +188,37 @@ export default function StajoveImperium() {
     setLoading(false);
   };
 
+  // FUNKCE PRO ZVÁNÍ NOVÝCH ČLENŮ
+  const handleInviteMember = async (e) => {
+    e.preventDefault();
+    if (!profile?.club_id) return alert('Klub nebyl nalezen.');
+
+    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    
+    const { error } = await supabase.from('invitations').insert([{ 
+      club_id: profile.club_id, 
+      email: inviteNewEmail, 
+      role: inviteNewRole, 
+      token: token 
+    }]);
+
+    if (error) {
+      alert('Chyba při vytváření pozvánky: ' + error.message);
+    } else {
+      const link = `${window.location.origin}${window.location.pathname}?invite=${token}`;
+      navigator.clipboard.writeText(link).then(() => {
+        alert(`Pozvánka vytvořena!\n\nOdkaz zkopírován do schránky:\n${link}\n\nPošlete ho trenérovi, aby se mohl připojit k vaší stáji.`);
+        setInviteNewEmail('');
+      });
+    }
+  };
+
+  // OSTATNÍ FUNKCE (Superadmin, Koně, Deník)
   const handleCreateClub = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('clubs').insert([{ 
-        name: newClubName, 
-        license_valid_until: newClubLicenseDate 
-    }]);
+    const { error } = await supabase.from('clubs').insert([{ name: newClubName, license_valid_until: newClubLicenseDate }]);
     if (error) alert(error.message);
-    else {
-      alert('Licence pro novou stáj úspěšně vytvořena!');
-      setNewClubName('');
-      setNewClubLicenseDate('');
-      fetchClubs();
-    }
+    else { alert('Licence pro novou stáj úspěšně vytvořena!'); setNewClubName(''); setNewClubLicenseDate(''); fetchClubs(); }
   };
 
   const handleExtendLicense = async (clubId, currentValidUntil, clubName) => {
@@ -164,41 +226,21 @@ export default function StajoveImperium() {
     currentDate.setFullYear(currentDate.getFullYear() + 1); 
     const newDateStr = currentDate.toISOString().split('T')[0];
 
-    if (confirm(`Opravdu chcete prodloužit licenci pro ${clubName} o další rok (do ${currentDate.toLocaleDateString('cs-CZ')})?`)) {
+    if (confirm(`Opravdu prodloužit licenci pro ${clubName} do ${currentDate.toLocaleDateString('cs-CZ')}?`)) {
       const { error } = await supabase.from('clubs').update({ license_valid_until: newDateStr }).eq('id', clubId);
-      if (error) alert('Chyba při prodlužování licence: ' + error.message);
-      else fetchClubs(); 
+      if (error) alert(error.message); else fetchClubs(); 
     }
   };
 
-  // Zkopírování odkazu do schránky
-  const copyInviteLink = (clubId, clubName) => {
-    const link = `${window.location.origin}${window.location.pathname}?klub=${clubId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      alert(`Zvací odkaz pro ${clubName} byl zkopírován do schránky! Můžete ho vložit do e-mailu.`);
-    });
-  };
-
-  const getHorseColor = (horseId) => {
-    const index = myHorses.findIndex(h => h.id === horseId);
-    return HORSE_COLORS[index % HORSE_COLORS.length] || '#333';
-  };
-
+  const getHorseColor = (horseId) => HORSE_COLORS[myHorses.findIndex(h => h.id === horseId) % HORSE_COLORS.length] || '#333';
   const getTypeColor = (type) => {
-    const colors = {
-      'Jízdárna': '#1976d2', 'Lonž': '#8e24aa', 'Terén': '#388e3c', 'Skoky': '#f57f17',
-      'Závody': '#d32f2f', 'Odpočinek': '#9e9e9e', 'Veterinář': '#00838f', 'Zuby': '#00838f', 'Fyzio': '#00838f', 'Kovář': '#5d4037'
-    };
+    const colors = { 'Jízdárna': '#1976d2', 'Lonž': '#8e24aa', 'Terén': '#388e3c', 'Skoky': '#f57f17', 'Závody': '#d32f2f', 'Odpočinek': '#9e9e9e', 'Veterinář': '#00838f', 'Zuby': '#00838f', 'Fyzio': '#00838f', 'Kovář': '#5d4037' };
     return colors[type] || '#333';
   };
 
   const toggleDiary = (horseId) => {
-    if (expandedDiaryId === horseId) { 
-      setExpandedDiaryId(null); 
-    } else {
-      setExpandedDiaryId(horseId);
-      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 });
-    }
+    if (expandedDiaryId === horseId) setExpandedDiaryId(null); 
+    else { setExpandedDiaryId(horseId); setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 }); }
   };
 
   const saveDiaryLog = async (e, horseId) => {
@@ -208,24 +250,13 @@ export default function StajoveImperium() {
       const fExt = docFile.name.split('.').pop();
       const fName = `${Math.random()}.${fExt}`;
       const { error: upErr } = await supabase.storage.from('horse_docs').upload(fName, docFile);
-      if (!upErr) {
-        const { data } = supabase.storage.from('horse_docs').getPublicUrl(fName);
-        attUrl = data.publicUrl;
-      }
+      if (!upErr) { const { data } = supabase.storage.from('horse_docs').getPublicUrl(fName); attUrl = data.publicUrl; }
     }
-
     let finalNotes = newLog.notes;
-    if (newLog.type === 'Závody' && newLog.selectedEventName) { finalNotes = `[${newLog.selectedEventName}] ${finalNotes}`; }
+    if (newLog.type === 'Závody' && newLog.selectedEventName) finalNotes = `[${newLog.selectedEventName}] ${finalNotes}`;
 
     const { error } = await supabase.from('horse_diary').insert([{ 
-      horse_id: horseId, 
-      club_id: profile?.club_id,
-      date: newLog.date, 
-      training_type: newLog.type, 
-      notes: finalNotes, 
-      cost: newLog.cost, 
-      rating: newLog.rating, 
-      attachment_url: attUrl 
+      horse_id: horseId, club_id: profile?.club_id, date: newLog.date, training_type: newLog.type, notes: finalNotes, cost: newLog.cost, rating: newLog.rating, attachment_url: attUrl 
     }]);
     
     if (error) alert(error.message);
@@ -250,7 +281,7 @@ export default function StajoveImperium() {
   const deleteHorse = async (id, name) => {
     if (confirm(`Smazat koně ${name}?`)) {
       await supabase.from('horses').delete().eq('id', id);
-      fetchMyHorses(user.id);
+      fetchMyHorses(profile.club_id);
     }
   };
 
@@ -278,19 +309,12 @@ export default function StajoveImperium() {
       finalPhotoUrl = data.publicUrl;
     }
     const payload = {
-      owner_id: user.id, 
-      club_id: profile?.club_id,
-      name: horseData.name, 
-      birth_year: horseData.birth_year, 
-      horse_id_number: horseData.horse_id_number,
-      vaccination_date: horseData.vaccination_date || null, 
-      farrier_date: horseData.farrier_date || null, 
-      diet_notes: horseData.diet_notes, 
-      photo_url: finalPhotoUrl
+      owner_id: user.id, club_id: profile?.club_id, name: horseData.name, birth_year: horseData.birth_year, horse_id_number: horseData.horse_id_number,
+      vaccination_date: horseData.vaccination_date || null, farrier_date: horseData.farrier_date || null, diet_notes: horseData.diet_notes, photo_url: finalPhotoUrl
     };
     if (currentHorseId) await supabase.from('horses').update(payload).eq('id', currentHorseId);
     else await supabase.from('horses').insert([payload]);
-    resetHorseForm(); fetchMyHorses(user.id);
+    resetHorseForm(); fetchMyHorses(profile.club_id);
   };
 
   const editHorse = (h) => {
@@ -306,7 +330,6 @@ export default function StajoveImperium() {
 
   const renderGlobalCalendar = () => {
     if (myHorses.length === 0) return null;
-
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -321,7 +344,6 @@ export default function StajoveImperium() {
     return (
       <div style={{background: '#fff', borderRadius: '8px', padding: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', marginTop: '20px', border: '1px solid #eee'}}>
         <h4 style={{margin: '0 0 10px 0', color: '#5d4037', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>📅 Kalendář stáje</h4>
-        
         <div style={{display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '10px'}}>
           {myHorses.map(h => (
             <div key={h.id} style={{display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 'bold', color: '#555'}}>
@@ -330,45 +352,30 @@ export default function StajoveImperium() {
             </div>
           ))}
         </div>
-
         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
           <button onClick={() => changeMonth(-1)} style={styles.btnCalNavSmall}>◀</button>
           <strong style={{fontSize: '0.9rem', color: '#5d4037'}}>{monthNames[month]} {year}</strong>
           <button onClick={() => changeMonth(1)} style={styles.btnCalNavSmall}>▶</button>
         </div>
-        
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center', fontWeight: 'bold', color: '#888', marginBottom: '4px', fontSize: '0.7rem'}}>
           <div>Po</div><div>Út</div><div>St</div><div>Čt</div><div>Pá</div><div>So</div><div>Ne</div>
         </div>
-
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px'}}>
           {daysArray.map((day, idx) => {
             if (!day) return <div key={idx} style={{background: '#f9f9f9', borderRadius: '4px', minHeight: '35px'}}></div>;
-            
             const cellDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isSelected = newLog.date === cellDateStr;
             const dayLogs = allDiaryLogs.filter(log => log.date === cellDateStr);
 
             return (
-              <div 
-                key={idx} 
-                onClick={() => {
-                  setNewLog({...newLog, date: cellDateStr});
-                  if (window.innerWidth <= 768) setIsSidebarOpen(false); 
-                }}
+              <div key={idx} onClick={() => { setNewLog({...newLog, date: cellDateStr}); if (window.innerWidth <= 768) setIsSidebarOpen(false); }}
                 style={{
-                  border: isSelected ? '2px solid #5d4037' : '1px solid #eee',
-                  background: isSelected ? '#fff3e0' : '#fff',
-                  borderRadius: '4px', minHeight: '35px', padding: '2px', cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', transition: 'all 0.2s',
-                  boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                }}
-              >
+                  border: isSelected ? '2px solid #5d4037' : '1px solid #eee', background: isSelected ? '#fff3e0' : '#fff',
+                  borderRadius: '4px', minHeight: '35px', padding: '2px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                }}>
                 <span style={{fontWeight: isSelected ? 'bold' : 'normal', color: isSelected ? '#5d4037' : '#333', fontSize: '0.8rem'}}>{day}</span>
                 <div style={{display: 'flex', flexWrap: 'wrap', gap: '2px', justifyContent: 'center', marginTop: 'auto', width: '100%'}}>
-                  {dayLogs.map(log => (
-                     <div key={log.id} title={log.training_type} style={{width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getHorseColor(log.horse_id)}}></div>
-                  ))}
+                  {dayLogs.map(log => ( <div key={log.id} title={log.training_type} style={{width: '6px', height: '6px', borderRadius: '50%', backgroundColor: getHorseColor(log.horse_id)}}></div> ))}
                 </div>
               </div>
             );
@@ -403,10 +410,10 @@ export default function StajoveImperium() {
       {!user ? (
         <div style={{...styles.card, maxWidth: '400px', margin: '40px auto'}}>
           <div style={{textAlign: 'center', marginBottom: '20px'}}>
-            {inviteClubId ? (
+            {inviteToken ? (
               <div style={{background: '#e8f5e9', padding: '15px', borderRadius: '8px', border: '2px solid #4caf50'}}>
-                <h3 style={{color: '#2e7d32', margin: '0 0 5px 0'}}>Speciální pozvánka!</h3>
-                <p style={{margin: 0, color: '#333'}}>Registrujete se do stáje: <strong>{inviteClubName || 'Načítám...'}</strong></p>
+                <h3 style={{color: '#2e7d32', margin: '0 0 5px 0'}}>Připojení k týmu!</h3>
+                <p style={{margin: 0, color: '#333'}}>Zadejte heslo pro dokončení registrace.</p>
               </div>
             ) : (
               <>
@@ -417,49 +424,45 @@ export default function StajoveImperium() {
           </div>
           
           <form onSubmit={handleAuth} style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-            <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required />
-            <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
+            <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken} />
+            <input type="password" placeholder="Zvolte si heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
             <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'DOKONČIT REGISTRACI' : 'VSTOUPIT'}</button>
           </form>
           
-          {!inviteClubId && (
+          {!inviteToken && (
             <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>
               {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
             </button>
           )}
         </div>
       ) : adminView ? (
-        
-        /* SUPERADMIN: SPRÁVA LICENCÍ A KLUBŮ */
+        /* SUPERADMIN: SPRÁVA LICENCÍ A KLUBŮ (Zůstává stejná) */
         <div style={{maxWidth: '1200px', margin: '0 auto', padding: '20px'}}>
           <div style={{background: '#fff3e0', padding: '25px', borderRadius: '12px', border: '2px solid #e65100', marginBottom: '30px'}}>
              <h2 style={{color: '#e65100', margin: '0 0 15px 0'}}>🏢 Generování nových licencí pro kluby</h2>
-             <p style={{color: '#555', marginBottom: '20px'}}>Zde vytvoříš licenci pro novou stáj. Tím se jí v databázi založí bezpečný oddělený prostor.</p>
              <form onSubmit={handleCreateClub} style={{display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
                <div style={{flex: 2, minWidth: '200px'}}>
-                 <label style={styles.formLabel}>Název nového Klubu / Stáje</label>
-                 <input type="text" placeholder="Např. Ranč Praha" value={newClubName} onChange={e => setNewClubName(e.target.value)} style={styles.input} required />
+                 <label style={styles.formLabel}>Název Klubu</label>
+                 <input type="text" value={newClubName} onChange={e => setNewClubName(e.target.value)} style={styles.input} required />
                </div>
                <div style={{flex: 1, minWidth: '150px'}}>
                  <label style={styles.formLabel}>Platnost licence do</label>
                  <input type="date" value={newClubLicenseDate} onChange={e => setNewClubLicenseDate(e.target.value)} style={styles.input} required />
                </div>
                <div style={{display: 'flex', alignItems: 'flex-end'}}>
-                 <button type="submit" style={{...styles.btnPrimary, background: '#e65100', marginBottom: '8px', width: 'auto', padding: '12px 25px'}}>Vytvořit Licenci</button>
+                 <button type="submit" style={{...styles.btnPrimary, background: '#e65100', marginBottom: '8px', padding: '12px 25px'}}>Vytvořit</button>
                </div>
              </form>
           </div>
-
           <div style={styles.card}>
-            <h3 style={{margin: '0 0 15px 0', borderBottom: '2px solid #eee', paddingBottom: '10px'}}>Registrované kluby v systému</h3>
+            <h3>Registrované kluby</h3>
             <div style={{overflowX: 'auto'}}>
-              <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '600px'}}>
                 <thead>
                   <tr style={{background: '#f9f9f9'}}>
                     <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Název klubu</th>
-                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Licence platná do</th>
-                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Akce / Správa</th>
-                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Zvací odkaz (Pro klienta)</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Platná do</th>
+                    <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Akce</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -470,19 +473,8 @@ export default function StajoveImperium() {
                         {new Date(c.license_valid_until).toLocaleDateString('cs-CZ')}
                       </td>
                       <td style={{padding: '12px'}}>
-                        <button 
-                          onClick={() => handleExtendLicense(c.id, c.license_valid_until, c.name)} 
-                          style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
-                        >
-                          + Prodloužit o rok
-                        </button>
-                      </td>
-                      <td style={{padding: '12px'}}>
-                        <button 
-                          onClick={() => copyInviteLink(c.id, c.name)} 
-                          style={{background: '#0288d1', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
-                        >
-                          🔗 Kopírovat odkaz
+                        <button onClick={() => handleExtendLicense(c.id, c.license_valid_until, c.name)} style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}>
+                          + Prodloužit
                         </button>
                       </td>
                     </tr>
@@ -492,46 +484,75 @@ export default function StajoveImperium() {
             </div>
           </div>
         </div>
-
       ) : (
         /* BĚŽNÝ POHLED JEZDCE / STÁJE */
         <div className="main-layout" style={styles.mainGrid}>
           
           <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`} style={styles.sideCard}>
-            <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
-            {editMode ? (
-              <form onSubmit={updateProfile} style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
-                <label style={styles.formLabel}>Jméno a příjmení</label>
-                <input style={styles.inputSmall} value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} placeholder="Jméno" />
-                
-                <label style={styles.formLabel}>Licence jezdce</label>
-                <select style={styles.inputSmall} value={profile?.license_type || 'Hobby'} onChange={e => setProfile({...profile, license_type: e.target.value})}>
-                  <option value="Hobby">Hobby</option>
-                  <option value="ZZVJ">ZZVJ</option>
-                  <option value="Profi">Profi</option>
-                </select>
-                
-                <label style={styles.formLabel}>Název hospodářství</label>
-                <input style={styles.inputSmall} value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} placeholder="Hospodářství" />
-                
-                <button type="submit" style={styles.btnSave}>Uložit</button>
-                <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc'}}>Zrušit</button>
-              </form>
+            
+            {/* PŘEPÍNAČ: Profil vs Tým */}
+            <div style={{display: 'flex', marginBottom: '15px', borderBottom: '2px solid #eee'}}>
+              <button onClick={() => setSidebarTab('profil')} style={{...styles.tabBtn, borderBottom: sidebarTab === 'profil' ? '3px solid #5d4037' : 'none', color: sidebarTab === 'profil' ? '#5d4037' : '#888'}}>👤 Profil</button>
+              <button onClick={() => setSidebarTab('tym')} style={{...styles.tabBtn, borderBottom: sidebarTab === 'tym' ? '3px solid #5d4037' : 'none', color: sidebarTab === 'tym' ? '#5d4037' : '#888'}}>👥 Můj Tým</button>
+            </div>
+
+            {sidebarTab === 'profil' ? (
+              <>
+                {editMode ? (
+                  <form onSubmit={updateProfile} style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                    <label style={styles.formLabel}>Jméno a příjmení</label>
+                    <input style={styles.inputSmall} value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} placeholder="Jméno" />
+                    <label style={styles.formLabel}>Název hospodářství</label>
+                    <input style={styles.inputSmall} value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} placeholder="Hospodářství" />
+                    <button type="submit" style={styles.btnSave}>Uložit</button>
+                    <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc'}}>Zrušit</button>
+                  </form>
+                ) : (
+                  <div>
+                    <p><strong>{profile?.full_name}</strong></p>
+                    <p style={{fontSize:'0.8rem', color:'#666'}}>{profile?.stable || 'Bez stáje'}</p>
+                    <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit profil</button>
+                    <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnSignOut}>Odhlásit</button>
+                  </div>
+                )}
+                {renderGlobalCalendar()}
+              </>
             ) : (
+              /* ZÁLOŽKA MŮJ TÝM */
               <div>
-                <p><strong>{profile?.full_name}</strong> <span style={{fontSize:'0.7rem', background:'#ffb300', padding:'2px 6px', borderRadius:'10px'}}>{profile?.license_type}</span></p>
-                <p style={{fontSize:'0.8rem', color:'#666'}}>{profile?.stable || 'Bez stáje'}</p>
-                <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit profil</button>
-                <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnSignOut}>Odhlásit</button>
+                <h4 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Přidat spolupracovníka</h4>
+                <form onSubmit={handleInviteMember} style={{display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', background: '#fafafa', padding: '10px', borderRadius: '8px'}}>
+                  <input type="email" placeholder="E-mail trenéra" value={inviteNewEmail} onChange={e => setInviteNewEmail(e.target.value)} style={styles.inputSmall} required />
+                  <select value={inviteNewRole} onChange={e => setInviteNewRole(e.target.value)} style={styles.inputSmall}>
+                    <option value="trainer">Trenér (Jen tréninky a deník)</option>
+                    <option value="collaborator">Spolupracovník (Tréninky, vet, kovář)</option>
+                  </select>
+                  <button type="submit" style={{...styles.btnSave, background: '#4caf50'}}>Vygenerovat odkaz</button>
+                </form>
+
+                <h4 style={{margin: '0 0 10px 0', color: '#5d4037', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>Členové stáje</h4>
+                {teamMembers.length === 0 ? <p style={{fontSize: '0.8rem', color: '#888'}}>Jste tu zatím sami.</p> : (
+                  <ul style={{listStyle: 'none', padding: 0, margin: 0}}>
+                    {teamMembers.map(member => (
+                      <li key={member.id} style={{fontSize: '0.85rem', padding: '8px 0', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between'}}>
+                        <span>
+                          <strong>{member.profiles?.full_name || 'Čeká na reg.'}</strong><br/>
+                          <span style={{color: '#666', fontSize: '0.75rem'}}>{member.profiles?.email}</span>
+                        </span>
+                        <span style={{background: member.role === 'owner' ? '#ffb300' : '#e0e0e0', padding: '2px 6px', borderRadius: '10px', fontSize: '0.7rem', height: 'max-content'}}>
+                          {member.role === 'owner' ? 'Majitel' : member.role === 'collaborator' ? 'Spolupracovník' : 'Trenér'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
-
-            {renderGlobalCalendar()}
-
           </div>
 
           {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
 
+          {/* HLAVNÍ PLOCHA PRO KONĚ (Beze změny, plně funkční) */}
           <div className="main-content">
             <div style={styles.contentGrid}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -739,6 +760,8 @@ const styles = {
   inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' },
   formLabel: { fontSize: '0.8rem', fontWeight: 'bold', color: '#666', marginBottom: '-2px' },
   formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  tabBtn: { background: 'transparent', border: 'none', flex: 1, padding: '10px', cursor: 'pointer', fontWeight: 'bold' },
+  btnSave: { background: '#4caf50', color: '#fff', border: 'none', padding: '8px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', width: '100%' },
   btnAdd: { background: '#4caf50', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' },
   btnPrimary: { background: '#5d4037', color: '#fff', border: 'none', padding: '12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
   btnOutline: { background: 'transparent', border: '1px solid #888', padding: '10px', borderRadius: '6px', width: '100%', cursor: 'pointer' },
