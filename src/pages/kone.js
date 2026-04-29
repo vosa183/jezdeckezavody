@@ -19,16 +19,13 @@ const getHealthStatus = (dateString) => {
   return { text: `(V pořádku, zbývá ${diffDays} dní)`, color: '#2e7d32', bgColor: '#e8f5e9' };
 };
 
-// Generátor odkazu do Google Kalendáře
 const createGCalLink = (title, dateString) => {
   if (!dateString) return '#';
   const date = new Date(dateString);
-  // Formát pro celodenní událost YYYYMMDD
   const formattedDate = date.toISOString().replace(/-|:|\.\d\d\d/g, '').slice(0, 8);
   const nextDay = new Date(date);
   nextDay.setDate(nextDay.getDate() + 1);
   const formattedNextDate = nextDay.toISOString().replace(/-|:|\.\d\d\d/g, '').slice(0, 8);
-  
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${formattedDate}/${formattedNextDate}`;
 };
 
@@ -65,6 +62,9 @@ export default function StajoveImperium() {
     date: new Date().toISOString().split('T')[0], type: 'Jízdárna', notes: '', cost: 0, rating: 0 
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  
+  // NOVÉ: Detail kalendáře po kliknutí
+  const [calendarDetailDate, setCalendarDetailDate] = useState(null);
 
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteNewEmail, setInviteNewEmail] = useState('');
@@ -73,7 +73,7 @@ export default function StajoveImperium() {
   const [adminView, setAdminView] = useState(false);
   const [clubs, setClubs] = useState([]);
   const [licenseKeyInput, setLicenseKeyInput] = useState(''); 
-  const [editingClubDates, setEditingClubDates] = useState({}); // Udržuje stav upravovaných dat pro kluby
+  const [editingClubDates, setEditingClubDates] = useState({});
 
   useEffect(() => { 
     const urlParams = new URLSearchParams(window.location.search);
@@ -104,11 +104,18 @@ export default function StajoveImperium() {
           setMyClub(clubData);
           
           const { data: memberData } = await supabase.from('club_members').select('role').eq('club_id', prof.club_id).eq('user_id', authUser.id).single();
-          if (memberData) setUserRole(memberData.role);
+          
+          // OPRAVA ROLE: Pokud je ve výchozí stáji a není v tabulce, je automaticky MAJITEL
+          if (memberData) {
+            setUserRole(memberData.role);
+          } else if (prof.club_id === '00000000-0000-0000-0000-000000000000') {
+            setUserRole('owner');
+          }
 
           await fetchMyHorses(prof.club_id, authUser.id);
           await fetchTeam(prof.club_id);
         } else {
+          setUserRole('owner'); // Bez klubu je automaticky owner svých dat
           await fetchMyHorses(null, authUser.id);
         }
         
@@ -138,17 +145,14 @@ export default function StajoveImperium() {
     }
   }
 
-  // STRIKTNÍ FILTR KONÍ (Opraveno)
   async function fetchMyHorses(clubId, userId) {
     if (!userId) return setMyHorses([]);
     
     let query = supabase.from('horses').select('*').order('created_at', { ascending: false });
     
-    // Pokud je uživatel ve výchozí/trial testovací stáji bez placení
     if (!clubId || clubId === '00000000-0000-0000-0000-000000000000') {
       query = query.eq('owner_id', userId);
     } else {
-      // Pokud má reálnou stáj, vidí všechny koně v této stáji
       query = query.eq('club_id', clubId);
     }
 
@@ -239,7 +243,6 @@ export default function StajoveImperium() {
     setLicenseKeyInput('');
   };
 
-  // SUPERADMIN: Manuální změna data licence (Opraveno)
   const handleUpdateClubLicense = async (clubId, clubName) => {
     const newDate = editingClubDates[clubId];
     if (!newDate) return alert('Zadejte prosím platné datum.');
@@ -437,7 +440,10 @@ export default function StajoveImperium() {
             const dayLogs = allDiaryLogs.filter(log => log.date === cellDateStr);
 
             return (
-              <div key={idx} onClick={() => { setNewLog({...newLog, date: cellDateStr}); if (window.innerWidth <= 768) setIsSidebarOpen(false); }}
+              <div key={idx} 
+                onClick={() => {
+                  setCalendarDetailDate(cellDateStr);
+                }}
                 style={{
                   border: isSelected ? '2px solid #5d4037' : '1px solid #eee', background: isSelected ? '#fff3e0' : '#fff',
                   borderRadius: '4px', minHeight: '35px', padding: '2px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: isSelected ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
@@ -454,11 +460,61 @@ export default function StajoveImperium() {
     );
   };
 
+  // Vykreslení modalu s detailem dne
+  const renderCalendarDetailModal = () => {
+    if (!calendarDetailDate) return null;
+    const logsForDay = allDiaryLogs.filter(l => l.date === calendarDetailDate);
+    
+    return (
+      <div style={styles.modalOverlay}>
+        <div style={styles.modalContent}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '10px'}}>
+            <h3 style={{margin: 0, color: '#3e2723'}}>📅 Záznamy pro {new Date(calendarDetailDate).toLocaleDateString('cs-CZ')}</h3>
+            <button onClick={() => setCalendarDetailDate(null)} style={{background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#888'}}>×</button>
+          </div>
+          
+          {logsForDay.length === 0 ? (
+            <p style={{color: '#666', textAlign: 'center', padding: '20px 0'}}>Pro tento den nejsou žádné záznamy.</p>
+          ) : (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+              {logsForDay.map(log => {
+                const horse = myHorses.find(h => h.id === log.horse_id);
+                return (
+                  <div key={log.id} style={{padding: '12px', borderRadius: '8px', borderLeft: `5px solid ${getHorseColor(log.horse_id)}`, background: '#fafafa', boxShadow: '0 1px 3px rgba(0,0,0,0.05)'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
+                      <strong style={{color: '#333'}}>{horse?.name || 'Neznámý kůň'}</strong>
+                      <span style={{background: getTypeColor(log.training_type), color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem'}}>{log.training_type}</span>
+                    </div>
+                    {log.rating > 0 && <div style={{fontSize: '0.9rem', marginBottom: '4px'}}>{'⭐'.repeat(log.rating)}</div>}
+                    <div style={{color: '#555', fontSize: '0.9rem', whiteSpace: 'pre-wrap'}}>{log.notes}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          <button 
+            onClick={() => {
+              setNewLog({...newLog, date: calendarDetailDate});
+              setCalendarDetailDate(null);
+              if (window.innerWidth <= 768) setIsSidebarOpen(false);
+            }} 
+            style={{...styles.btnPrimary, width: '100%', marginTop: '20px'}}
+          >
+            + Přidat nový záznam na tento den
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) return <div style={styles.loader}>Otevírám vrata stáje...</div>;
 
   return (
     <div style={styles.container}>
       <style>{mobileStyles}</style>
+      {renderCalendarDetailModal()}
+      
       {user && (
         <div style={styles.topNav}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -504,7 +560,6 @@ export default function StajoveImperium() {
           )}
         </div>
       ) : adminView ? (
-        /* SUPERADMIN POHLED - UPRAVENO NA MANUÁLNÍ ZADÁNÍ DATA */
         <div style={{maxWidth: '1200px', margin: '0 auto', padding: '20px'}}>
           <div style={styles.card}>
             <h3 style={{color: '#e65100', borderBottom: '2px solid #e65100', paddingBottom: '10px'}}>🏢 Náhled Superadmin: Správa Stájí a Licencí</h3>
@@ -522,7 +577,6 @@ export default function StajoveImperium() {
                   {clubs.map(c => {
                     const isTrial = c.trial_ends_at && new Date(c.trial_ends_at) > new Date() && (!c.license_valid_until || new Date(c.license_valid_until) < new Date());
                     const isPaid = c.license_valid_until && new Date(c.license_valid_until) > new Date();
-                    // Zjistíme, co je aktuálně v inputu, nebo tam dáme aktuální platnost
                     const currentDateVal = editingClubDates[c.id] !== undefined ? editingClubDates[c.id] : (c.license_valid_until ? c.license_valid_until.split('T')[0] : '');
                     
                     return (
@@ -535,20 +589,9 @@ export default function StajoveImperium() {
                          <span style={{color: 'red', fontWeight: 'bold'}}>Vypršela</span>}
                       </td>
                       <td style={{padding: '12px'}}>
-                        {/* OPRAVENÁ ÚPRAVA LICENCE PRO SUPERADMINA */}
                         <div style={{display: 'flex', gap: '5px'}}>
-                          <input 
-                            type="date" 
-                            value={currentDateVal} 
-                            onChange={(e) => handleClubDateChange(c.id, e.target.value)}
-                            style={{...styles.inputSmall, width: '150px'}} 
-                          />
-                          <button 
-                            onClick={() => handleUpdateClubLicense(c.id, c.name)} 
-                            style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}
-                          >
-                            Uložit datum
-                          </button>
+                          <input type="date" value={currentDateVal} onChange={(e) => handleClubDateChange(c.id, e.target.value)} style={{...styles.inputSmall, width: '150px'}} />
+                          <button onClick={() => handleUpdateClubLicense(c.id, c.name)} style={{background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'}}>Uložit datum</button>
                         </div>
                       </td>
                     </tr>
@@ -608,15 +651,16 @@ export default function StajoveImperium() {
                   <>
                     <h4 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Přidat člena týmu</h4>
                     <form onSubmit={handleInviteMember} style={{display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', background: '#fafafa', padding: '10px', borderRadius: '8px'}}>
+                      <label style={styles.formLabel}>Zadejte e-mail nového člena:</label>
                       <input type="email" placeholder="E-mail člena" value={inviteNewEmail} onChange={e => setInviteNewEmail(e.target.value)} style={styles.inputSmall} required />
+                      <label style={styles.formLabel}>Vyberte jeho roli:</label>
                       <select value={inviteNewRole} onChange={e => setInviteNewRole(e.target.value)} style={styles.inputSmall}>
                         <option value="trainer">Trenér</option>
                         <option value="collaborator">Spolupracovník (Tréninky, péče)</option>
-                        {/* PŘIDÁNY NOVÉ ROLE */}
                         <option value="farrier">Kovář</option>
                         <option value="vet">Veterinář</option>
                       </select>
-                      <button type="submit" style={{...styles.btnSave, background: '#4caf50'}}>Vygenerovat pozvánku</button>
+                      <button type="submit" style={{...styles.btnSave, background: '#4caf50'}}>Vygenerovat odkaz</button>
                     </form>
                   </>
                 )}
@@ -624,7 +668,6 @@ export default function StajoveImperium() {
                 <h4 style={{margin: '0 0 10px 0', color: '#5d4037', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>Členové stáje</h4>
                 <ul style={{listStyle: 'none', padding: 0, margin: 0}}>
                   {teamMembers.map(member => {
-                    // Překlad rolí
                     const roleNames = { 'owner': 'Majitel', 'collaborator': 'Spoluprac.', 'trainer': 'Trenér', 'farrier': 'Kovář', 'vet': 'Veterinář' };
                     return (
                     <li key={member.id} style={{fontSize: '0.85rem', padding: '8px 0', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between'}}>
@@ -688,11 +731,11 @@ export default function StajoveImperium() {
                           <div style={{background: '#fcfcfc', padding: '10px', borderRadius: '8px', marginBottom: '10px', border: '1px solid #eee'}}>
                             <div style={{...styles.infoRow, borderBottom: 'none', paddingBottom: 0}}>
                               <span>💉 Očkování: <span style={{color:vacS.color}}>{h.vaccination_date ? new Date(h.vaccination_date).toLocaleDateString() : 'Nenastaveno'}</span></span>
-                              {h.vaccination_date && <a href={createGCalLink(`Očkování - ${h.name}`, h.vaccination_date)} target="_blank" style={styles.gcalLink}>📅 Uložit</a>}
+                              {h.vaccination_date && <a href={createGCalLink(`Očkování - ${h.name}`, h.vaccination_date)} target="_blank" rel="noopener noreferrer" style={styles.gcalLink}>📅 Do Googlu</a>}
                             </div>
                             <div style={{...styles.infoRow, borderBottom: 'none'}}>
                               <span>⚒️ Kovář: <span style={{color:farS.color}}>{h.farrier_date ? new Date(h.farrier_date).toLocaleDateString() : 'Nenastaveno'}</span></span>
-                              {h.farrier_date && <a href={createGCalLink(`Kovář - ${h.name}`, h.farrier_date)} target="_blank" style={styles.gcalLink}>📅 Uložit</a>}
+                              {h.farrier_date && <a href={createGCalLink(`Kovář - ${h.name}`, h.farrier_date)} target="_blank" rel="noopener noreferrer" style={styles.gcalLink}>📅 Do Googlu</a>}
                             </div>
                           </div>
                         )}
@@ -858,7 +901,7 @@ const styles = {
   horseCard: { background: '#fff', borderRadius: '12px', padding: '15px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   formCard: { backgroundColor: '#fafafa', padding: '20px', borderRadius: '12px', border: '1px solid #ddd' },
   infoRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #f0f0f0', fontSize: '0.9rem' },
-  gcalLink: { background: '#4285F4', color: '#fff', padding: '2px 8px', borderRadius: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 'bold' },
+  gcalLink: { background: '#fff', color: '#4285F4', border: '1px solid #4285F4', padding: '2px 8px', borderRadius: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 'bold', transition: 'all 0.2s' },
   input: { padding: '10px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   inputSmall: { padding: '8px', borderRadius: '5px', border: '1px solid #ddd', width: '100%', boxSizing: 'border-box' },
   formLabel: { fontSize: '0.8rem', fontWeight: 'bold', color: '#666', marginBottom: '-2px' },
@@ -871,5 +914,7 @@ const styles = {
   btnIconEdit: { background: '#e3f2fd', border: 'none', padding: '5px', borderRadius: '4px', cursor: 'pointer' },
   btnIconDelete: { background: '#ffebee', border: 'none', padding: '5px', borderRadius: '4px', cursor: 'pointer' },
   btnText: { background: 'none', border: 'none', color: '#8d6e63', textDecoration: 'underline', width: '100%', marginTop: '10px', cursor: 'pointer' },
-  btnSignOut: { background: '#e57373', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', marginTop: '10px', width: '100%', cursor: 'pointer' }
+  btnSignOut: { background: '#e57373', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', marginTop: '10px', width: '100%', cursor: 'pointer' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' },
+  modalContent: { backgroundColor: '#fff', padding: '20px', borderRadius: '12px', width: '100%', maxWidth: '500px', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }
 };
