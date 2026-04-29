@@ -26,14 +26,12 @@ export default function StajoveImperium() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Přihlašování a Registrace
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [inviteToken, setInviteToken] = useState(null);
   const [invitedEmail, setInvitedEmail] = useState('');
 
-  // Koně a události
   const [myHorses, setMyHorses] = useState([]);
   const [events, setEvents] = useState([]);
   const [isEditingHorse, setIsEditingHorse] = useState(false);
@@ -43,12 +41,10 @@ export default function StajoveImperium() {
     name: '', birth_year: '', horse_id_number: '', vaccination_date: '', farrier_date: '', diet_notes: '', photo_url: ''
   });
   
-  // UI stavy
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState('profil'); // 'profil' nebo 'tym'
+  const [sidebarTab, setSidebarTab] = useState('profil');
 
-  // DENÍK A KALENDÁŘ
   const [expandedDiaryId, setExpandedDiaryId] = useState(null);
   const [allDiaryLogs, setAllDiaryLogs] = useState([]); 
   const [docFile, setDocFile] = useState(null);
@@ -58,19 +54,16 @@ export default function StajoveImperium() {
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
-  // MŮJ TÝM A POZVÁNKY
   const [teamMembers, setTeamMembers] = useState([]);
   const [inviteNewEmail, setInviteNewEmail] = useState('');
   const [inviteNewRole, setInviteNewRole] = useState('trainer');
 
-  // SUPERADMIN
   const [adminView, setAdminView] = useState(false);
   const [clubs, setClubs] = useState([]);
   const [newClubName, setNewClubName] = useState('');
   const [newClubLicenseDate, setNewClubLicenseDate] = useState('');
 
   useEffect(() => { 
-    // Zpracování pozvánky z URL při načtení stránky
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('invite');
     if (token) {
@@ -83,10 +76,10 @@ export default function StajoveImperium() {
   }, []);
 
   async function checkInviteToken(token) {
-    const { data, error } = await supabase.from('invitations').select('*').eq('token', token).single();
+    const { data } = await supabase.from('invitations').select('*').eq('token', token).single();
     if (data && !data.is_accepted) {
       setInvitedEmail(data.email);
-      setEmail(data.email); // Předvyplníme formulář
+      setEmail(data.email); 
     }
   }
 
@@ -99,8 +92,11 @@ export default function StajoveImperium() {
         setProfile(prof);
         
         if (prof?.club_id) {
-          await fetchMyHorses(prof.club_id);
+          // OPRAVA ZDE: Předáváme obě ID, abychom mohli filtrovat podle situace
+          await fetchMyHorses(prof.club_id, authUser.id);
           await fetchTeam(prof.club_id);
+        } else {
+          await fetchMyHorses(null, authUser.id);
         }
         await fetchEvents();
         
@@ -112,10 +108,12 @@ export default function StajoveImperium() {
   }
 
   async function fetchTeam(clubId) {
-    const { data } = await supabase
-      .from('club_members')
-      .select('*, profiles(full_name, email)')
-      .eq('club_id', clubId);
+    // Tým nenačítáme pro výchozí sběrnou stáj, aby lidi neviděli cizí uživatele
+    if (!clubId || clubId === '00000000-0000-0000-0000-000000000000') {
+      setTeamMembers([]);
+      return;
+    }
+    const { data } = await supabase.from('club_members').select('*, profiles(full_name, email)').eq('club_id', clubId);
     setTeamMembers(data || []);
   }
 
@@ -124,8 +122,19 @@ export default function StajoveImperium() {
     setClubs(data || []);
   }
 
-  async function fetchMyHorses(clubId) {
-    const { data: horses } = await supabase.from('horses').select('*').eq('club_id', clubId).order('created_at', { ascending: false });
+  // OPRAVENÁ FUNKCE: Chytré filtrování koní
+  async function fetchMyHorses(clubId, userId) {
+    let query = supabase.from('horses').select('*').order('created_at', { ascending: false });
+    
+    if (!clubId || clubId === '00000000-0000-0000-0000-000000000000') {
+      // Výchozí/Sandbox klub: Vidí jen koně, které vytvořil
+      query = query.eq('owner_id', userId);
+    } else {
+      // Prémiový klub: Vidí všechny koně stáje (pro tým)
+      query = query.eq('club_id', clubId);
+    }
+
+    const { data: horses } = await query;
     setMyHorses(horses || []);
     
     if (horses && horses.length > 0) {
@@ -150,32 +159,23 @@ export default function StajoveImperium() {
       if (error) alert(error.message);
       else if (data?.user) {
         
-        let targetClubId = '00000000-0000-0000-0000-000000000000'; // Výchozí
+        let targetClubId = '00000000-0000-0000-0000-000000000000'; 
         let role = 'owner';
 
-        // Pokud uživatel přišel přes pozvánku
         if (inviteToken) {
           const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
           if (invData && !invData.is_accepted) {
             targetClubId = invData.club_id;
             role = invData.role;
-            
-            // Označit pozvánku jako přijatou
             await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
-            
-            // Zapsat ho jako člena týmu
             await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: role }]);
           }
         } else {
-          // Pokud je to nový zakladatel, zapíšeme ho jako majitele výchozí stáje
           await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: 'owner' }]);
         }
         
         await supabase.from('profiles').insert([{ 
-            id: data.user.id, 
-            email: email, 
-            license_type: 'Hobby',
-            club_id: targetClubId
+            id: data.user.id, email: email, license_type: 'Hobby', club_id: targetClubId
         }]);
         
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -188,37 +188,31 @@ export default function StajoveImperium() {
     setLoading(false);
   };
 
-  // FUNKCE PRO ZVÁNÍ NOVÝCH ČLENŮ
   const handleInviteMember = async (e) => {
     e.preventDefault();
-    if (!profile?.club_id) return alert('Klub nebyl nalezen.');
+    if (!profile?.club_id || profile.club_id === '00000000-0000-0000-0000-000000000000') {
+      return alert('Jste ve výchozí testovací stáji. Pro zvaní členů musíte mít placenou/vytvořenou stáj.');
+    }
 
     const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    
-    const { error } = await supabase.from('invitations').insert([{ 
-      club_id: profile.club_id, 
-      email: inviteNewEmail, 
-      role: inviteNewRole, 
-      token: token 
-    }]);
+    const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: inviteNewEmail, role: inviteNewRole, token: token }]);
 
     if (error) {
       alert('Chyba při vytváření pozvánky: ' + error.message);
     } else {
       const link = `${window.location.origin}${window.location.pathname}?invite=${token}`;
       navigator.clipboard.writeText(link).then(() => {
-        alert(`Pozvánka vytvořena!\n\nOdkaz zkopírován do schránky:\n${link}\n\nPošlete ho trenérovi, aby se mohl připojit k vaší stáji.`);
+        alert(`Pozvánka vytvořena!\n\nOdkaz zkopírován do schránky:\n${link}`);
         setInviteNewEmail('');
       });
     }
   };
 
-  // OSTATNÍ FUNKCE (Superadmin, Koně, Deník)
   const handleCreateClub = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('clubs').insert([{ name: newClubName, license_valid_until: newClubLicenseDate }]);
     if (error) alert(error.message);
-    else { alert('Licence pro novou stáj úspěšně vytvořena!'); setNewClubName(''); setNewClubLicenseDate(''); fetchClubs(); }
+    else { alert('Licence pro novou stáj vytvořena!'); setNewClubName(''); setNewClubLicenseDate(''); fetchClubs(); }
   };
 
   const handleExtendLicense = async (clubId, currentValidUntil, clubName) => {
@@ -281,7 +275,7 @@ export default function StajoveImperium() {
   const deleteHorse = async (id, name) => {
     if (confirm(`Smazat koně ${name}?`)) {
       await supabase.from('horses').delete().eq('id', id);
-      fetchMyHorses(profile.club_id);
+      fetchMyHorses(profile?.club_id, user.id);
     }
   };
 
@@ -314,7 +308,7 @@ export default function StajoveImperium() {
     };
     if (currentHorseId) await supabase.from('horses').update(payload).eq('id', currentHorseId);
     else await supabase.from('horses').insert([payload]);
-    resetHorseForm(); fetchMyHorses(profile.club_id);
+    resetHorseForm(); fetchMyHorses(profile?.club_id, user.id);
   };
 
   const editHorse = (h) => {
@@ -436,7 +430,6 @@ export default function StajoveImperium() {
           )}
         </div>
       ) : adminView ? (
-        /* SUPERADMIN: SPRÁVA LICENCÍ A KLUBŮ (Zůstává stejná) */
         <div style={{maxWidth: '1200px', margin: '0 auto', padding: '20px'}}>
           <div style={{background: '#fff3e0', padding: '25px', borderRadius: '12px', border: '2px solid #e65100', marginBottom: '30px'}}>
              <h2 style={{color: '#e65100', margin: '0 0 15px 0'}}>🏢 Generování nových licencí pro kluby</h2>
@@ -485,12 +478,10 @@ export default function StajoveImperium() {
           </div>
         </div>
       ) : (
-        /* BĚŽNÝ POHLED JEZDCE / STÁJE */
         <div className="main-layout" style={styles.mainGrid}>
           
           <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`} style={styles.sideCard}>
             
-            {/* PŘEPÍNAČ: Profil vs Tým */}
             <div style={{display: 'flex', marginBottom: '15px', borderBottom: '2px solid #eee'}}>
               <button onClick={() => setSidebarTab('profil')} style={{...styles.tabBtn, borderBottom: sidebarTab === 'profil' ? '3px solid #5d4037' : 'none', color: sidebarTab === 'profil' ? '#5d4037' : '#888'}}>👤 Profil</button>
               <button onClick={() => setSidebarTab('tym')} style={{...styles.tabBtn, borderBottom: sidebarTab === 'tym' ? '3px solid #5d4037' : 'none', color: sidebarTab === 'tym' ? '#5d4037' : '#888'}}>👥 Můj Tým</button>
@@ -502,14 +493,23 @@ export default function StajoveImperium() {
                   <form onSubmit={updateProfile} style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
                     <label style={styles.formLabel}>Jméno a příjmení</label>
                     <input style={styles.inputSmall} value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} placeholder="Jméno" />
+                    
+                    <label style={styles.formLabel}>Licence jezdce</label>
+                    <select style={styles.inputSmall} value={profile?.license_type || 'Hobby'} onChange={e => setProfile({...profile, license_type: e.target.value})}>
+                      <option value="Hobby">Hobby</option>
+                      <option value="ZZVJ">ZZVJ</option>
+                      <option value="Profi">Profi</option>
+                    </select>
+                    
                     <label style={styles.formLabel}>Název hospodářství</label>
                     <input style={styles.inputSmall} value={profile?.stable || ''} onChange={e => setProfile({...profile, stable: e.target.value})} placeholder="Hospodářství" />
+                    
                     <button type="submit" style={styles.btnSave}>Uložit</button>
                     <button type="button" onClick={() => setEditMode(false)} style={{...styles.btnSave, background: '#ccc'}}>Zrušit</button>
                   </form>
                 ) : (
                   <div>
-                    <p><strong>{profile?.full_name}</strong></p>
+                    <p><strong>{profile?.full_name}</strong> <span style={{fontSize:'0.7rem', background:'#ffb300', padding:'2px 6px', borderRadius:'10px'}}>{profile?.license_type}</span></p>
                     <p style={{fontSize:'0.8rem', color:'#666'}}>{profile?.stable || 'Bez stáje'}</p>
                     <button onClick={() => setEditMode(true)} style={styles.btnOutline}>Upravit profil</button>
                     <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnSignOut}>Odhlásit</button>
@@ -518,7 +518,6 @@ export default function StajoveImperium() {
                 {renderGlobalCalendar()}
               </>
             ) : (
-              /* ZÁLOŽKA MŮJ TÝM */
               <div>
                 <h4 style={{margin: '0 0 10px 0', color: '#5d4037'}}>Přidat spolupracovníka</h4>
                 <form onSubmit={handleInviteMember} style={{display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', background: '#fafafa', padding: '10px', borderRadius: '8px'}}>
@@ -531,7 +530,7 @@ export default function StajoveImperium() {
                 </form>
 
                 <h4 style={{margin: '0 0 10px 0', color: '#5d4037', borderBottom: '1px solid #ddd', paddingBottom: '5px'}}>Členové stáje</h4>
-                {teamMembers.length === 0 ? <p style={{fontSize: '0.8rem', color: '#888'}}>Jste tu zatím sami.</p> : (
+                {teamMembers.length === 0 ? <p style={{fontSize: '0.8rem', color: '#888'}}>Tento seznam je pro licencované stáje.</p> : (
                   <ul style={{listStyle: 'none', padding: 0, margin: 0}}>
                     {teamMembers.map(member => (
                       <li key={member.id} style={{fontSize: '0.85rem', padding: '8px 0', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between'}}>
@@ -552,7 +551,6 @@ export default function StajoveImperium() {
 
           {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
 
-          {/* HLAVNÍ PLOCHA PRO KONĚ (Beze změny, plně funkční) */}
           <div className="main-content">
             <div style={styles.contentGrid}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
