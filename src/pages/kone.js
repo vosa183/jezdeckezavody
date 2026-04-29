@@ -47,8 +47,13 @@ export default function StajoveImperium() {
     date: new Date().toISOString().split('T')[0], 
     type: 'Jízdárna', notes: '', selectedEventName: '', cost: 0, rating: 0 
   });
-  
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+
+  // SUPERADMIN A LICENCE
+  const [adminView, setAdminView] = useState(false);
+  const [clubs, setClubs] = useState([]);
+  const [newClubName, setNewClubName] = useState('');
+  const [newClubLicenseDate, setNewClubLicenseDate] = useState('');
 
   useEffect(() => { checkUser(); }, []);
 
@@ -61,8 +66,17 @@ export default function StajoveImperium() {
         setProfile(prof);
         await fetchMyHorses(authUser.id);
         await fetchEvents();
+        
+        if (prof?.role === 'superadmin') {
+          await fetchClubs();
+        }
       }
     } finally { setLoading(false); }
+  }
+
+  async function fetchClubs() {
+    const { data } = await supabase.from('clubs').select('*').order('created_at', { ascending: false });
+    setClubs(data || []);
   }
 
   async function fetchMyHorses(userId) {
@@ -89,7 +103,13 @@ export default function StajoveImperium() {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) alert(error.message);
       else if (data?.user) {
-        await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Hobby' }]);
+        // Nový uživatel spadne do Výchozího klubu, pokud ho nezaložil superadmin
+        await supabase.from('profiles').insert([{ 
+            id: data.user.id, 
+            email: email, 
+            license_type: 'Hobby',
+            club_id: '00000000-0000-0000-0000-000000000000'
+        }]);
         window.location.reload();
       }
     } else {
@@ -97,6 +117,21 @@ export default function StajoveImperium() {
       if (error) alert(error.message); else window.location.reload();
     }
     setLoading(false);
+  };
+
+  const handleCreateClub = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.from('clubs').insert([{ 
+        name: newClubName, 
+        license_valid_until: newClubLicenseDate 
+    }]);
+    if (error) alert(error.message);
+    else {
+      alert('Licence pro novou stáj úspěšně vytvořena!');
+      setNewClubName('');
+      setNewClubLicenseDate('');
+      fetchClubs();
+    }
   };
 
   const getHorseColor = (horseId) => {
@@ -138,8 +173,14 @@ export default function StajoveImperium() {
     if (newLog.type === 'Závody' && newLog.selectedEventName) { finalNotes = `[${newLog.selectedEventName}] ${finalNotes}`; }
 
     const { error } = await supabase.from('horse_diary').insert([{ 
-      horse_id: horseId, date: newLog.date, training_type: newLog.type, notes: finalNotes, 
-      cost: newLog.cost, rating: newLog.rating, attachment_url: attUrl 
+      horse_id: horseId, 
+      club_id: profile?.club_id,
+      date: newLog.date, 
+      training_type: newLog.type, 
+      notes: finalNotes, 
+      cost: newLog.cost, 
+      rating: newLog.rating, 
+      attachment_url: attUrl 
     }]);
     
     if (error) alert(error.message);
@@ -192,8 +233,15 @@ export default function StajoveImperium() {
       finalPhotoUrl = data.publicUrl;
     }
     const payload = {
-      owner_id: user.id, name: horseData.name, birth_year: horseData.birth_year, horse_id_number: horseData.horse_id_number,
-      vaccination_date: horseData.vaccination_date || null, farrier_date: horseData.farrier_date || null, diet_notes: horseData.diet_notes, photo_url: finalPhotoUrl
+      owner_id: user.id, 
+      club_id: profile?.club_id,
+      name: horseData.name, 
+      birth_year: horseData.birth_year, 
+      horse_id_number: horseData.horse_id_number,
+      vaccination_date: horseData.vaccination_date || null, 
+      farrier_date: horseData.farrier_date || null, 
+      diet_notes: horseData.diet_notes, 
+      photo_url: finalPhotoUrl
     };
     if (currentHorseId) await supabase.from('horses').update(payload).eq('id', currentHorseId);
     else await supabase.from('horses').insert([payload]);
@@ -211,7 +259,6 @@ export default function StajoveImperium() {
     setCalendarMonth(newDate);
   };
 
-  // MINI KALENDÁŘ PRO LEVÝ PANEL
   const renderGlobalCalendar = () => {
     if (myHorses.length === 0) return null;
 
@@ -262,7 +309,7 @@ export default function StajoveImperium() {
                 key={idx} 
                 onClick={() => {
                   setNewLog({...newLog, date: cellDateStr});
-                  if (window.innerWidth <= 768) setIsSidebarOpen(false); // Zavře menu na mobilu po výběru
+                  if (window.innerWidth <= 768) setIsSidebarOpen(false); 
                 }}
                 style={{
                   border: isSelected ? '2px solid #5d4037' : '1px solid #eee',
@@ -297,7 +344,14 @@ export default function StajoveImperium() {
             <button className="mobile-only" onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={styles.hamburgerBtn}>☰ Stáj</button>
             <h2 style={{ margin: 0, color: '#fff' }}>🐴 Moje Stáj</h2>
           </div>
-          <button onClick={() => window.location.href = '/'} style={styles.btnNavOutline}>🔙 Zpět na Závody</button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {profile?.role === 'superadmin' && (
+              <button onClick={() => setAdminView(!adminView)} style={{...styles.btnNavOutline, background: adminView ? '#fff' : 'transparent', color: adminView ? '#333' : '#ffb300'}}>
+                {adminView ? '🐴 Zpět do stáje' : '🏢 Správa Licencí'}
+              </button>
+            )}
+            <button onClick={() => window.location.href = '/'} style={styles.btnNavOutline}>🔙 Zpět na Závody</button>
+          </div>
         </div>
       )}
 
@@ -311,10 +365,57 @@ export default function StajoveImperium() {
           </form>
           <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>{isSignUp ? 'Přihlásit se' : 'Nová registrace'}</button>
         </div>
+      ) : adminView ? (
+        
+        /* SUPERADMIN: SPRÁVA LICENCÍ A KLUBŮ */
+        <div style={{maxWidth: '1200px', margin: '0 auto', padding: '20px'}}>
+          <div style={{background: '#fff3e0', padding: '25px', borderRadius: '12px', border: '2px solid #e65100', marginBottom: '30px'}}>
+             <h2 style={{color: '#e65100', margin: '0 0 15px 0'}}>🏢 Generování nových licencí pro kluby</h2>
+             <p style={{color: '#555', marginBottom: '20px'}}>Zde vytvoříš licenci pro novou stáj. Tím se jí v databázi založí bezpečný oddělený prostor.</p>
+             <form onSubmit={handleCreateClub} style={{display: 'flex', gap: '15px', flexWrap: 'wrap'}}>
+               <div style={{flex: 2, minWidth: '200px'}}>
+                 <label style={styles.formLabel}>Název nového Klubu / Stáje</label>
+                 <input type="text" placeholder="Např. Ranč Praha" value={newClubName} onChange={e => setNewClubName(e.target.value)} style={styles.input} required />
+               </div>
+               <div style={{flex: 1, minWidth: '150px'}}>
+                 <label style={styles.formLabel}>Platnost licence do</label>
+                 <input type="date" value={newClubLicenseDate} onChange={e => setNewClubLicenseDate(e.target.value)} style={styles.input} required />
+               </div>
+               <div style={{display: 'flex', alignItems: 'flex-end'}}>
+                 <button type="submit" style={{...styles.btnPrimary, background: '#e65100', marginBottom: '8px', width: 'auto', padding: '12px 25px'}}>Vytvořit Licenci</button>
+               </div>
+             </form>
+          </div>
+
+          <div style={styles.card}>
+            <h3 style={{margin: '0 0 15px 0', borderBottom: '2px solid #eee', paddingBottom: '10px'}}>Registrované kluby v systému</h3>
+            <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left'}}>
+              <thead>
+                <tr style={{background: '#f9f9f9'}}>
+                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Název klubu</th>
+                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>Licence platná do</th>
+                  <th style={{padding: '12px', borderBottom: '1px solid #ddd'}}>ID (Pro registraci)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clubs.map(c => (
+                  <tr key={c.id} style={{borderBottom: '1px solid #eee'}}>
+                    <td style={{padding: '12px', fontWeight: 'bold'}}>{c.name}</td>
+                    <td style={{padding: '12px', color: new Date(c.license_valid_until) < new Date() ? 'red' : 'green'}}>
+                      {new Date(c.license_valid_until).toLocaleDateString('cs-CZ')}
+                    </td>
+                    <td style={{padding: '12px', fontSize: '0.8rem', fontFamily: 'monospace', color: '#888'}}>{c.id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       ) : (
+        /* BĚŽNÝ POHLED JEZDCE / STÁJE */
         <div className="main-layout" style={styles.mainGrid}>
           
-          {/* LEVÝ PANEL (PROFIL + KALENDÁŘ) */}
           <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`} style={styles.sideCard}>
             <h3 style={{marginTop: 0}}>👤 Můj Profil</h3>
             {editMode ? (
@@ -344,14 +445,12 @@ export default function StajoveImperium() {
               </div>
             )}
 
-            {/* ZDE JE NYNÍ KALENDÁŘ */}
             {renderGlobalCalendar()}
 
           </div>
 
           {isSidebarOpen && <div className="sidebar-overlay" onClick={() => setIsSidebarOpen(false)}></div>}
 
-          {/* HLAVNÍ PLOCHA (KONĚ A DENÍKY) */}
           <div className="main-content">
             <div style={styles.contentGrid}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -482,7 +581,7 @@ export default function StajoveImperium() {
                     <div style={{display: 'flex', gap: '10px'}}>
                       <div style={{...styles.formGroup, flex: 1}}>
                         <label style={styles.formLabel}>Rok narození</label>
-                        <input type="number" placeholder="Např. 2018" value={horseData.birth_year} onChange={e=>setHorseData({...horseData, birth_year:e.target.value})} style={styles.input} />
+                        <input type="number" placeholder="Např. ročník" value={horseData.birth_year} onChange={e=>setHorseData({...horseData, birth_year:e.target.value})} style={styles.input} />
                       </div>
                       <div style={{...styles.formGroup, flex: 1}}>
                         <label style={styles.formLabel}>ID / Průkaz</label>
