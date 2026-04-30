@@ -292,7 +292,7 @@ export default function SuperadminPortal() {
                 <label style={styles.formLabel}>1. Individuální cena (Nejvyšší priorita)</label>
                 <input 
                   type="number" 
-                  placeholder={`Např. 500 (Nechte prázdné pro ignorování)`} 
+                  placeholder="Např. 500 (Nechte prázdné pro ignorování)" 
                   value={customPrice} 
                   onChange={e => setCustomPrice(e.target.value)} 
                   style={styles.input} 
@@ -309,7 +309,7 @@ export default function SuperadminPortal() {
                   onChange={e => setLockedPrice(e.target.value)} 
                   style={styles.input} 
                 />
-                <small style={{ color: '#888' }}>Tuto cenu klient platí, pokud nepřeruší předplatné. Pokud má pauzu > 12h, při další platbě systém toto pole smaže a napálí mu Globální cenu.</small>
+                <small style={{ color: '#888' }}>Tuto cenu klient platí, pokud nepřeruší předplatné. Pokud má pauzu delší než 12h, při další platbě systém toto pole smaže a napálí mu Globální cenu.</small>
               </div>
 
               <div style={{ marginTop: '10px', borderTop: '1px dashed #ccc', paddingTop: '15px' }}>
