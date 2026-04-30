@@ -17,8 +17,10 @@ export default function SuperadminPortal() {
   const [adminGenEmail, setAdminGenEmail] = useState('');
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
-  // GLOBÁLNÍ NASTAVENÍ (ROČNÍ)
+  // GLOBÁLNÍ NASTAVENÍ (CENY A BANKA)
   const [globalAnnualPrice, setGlobalAnnualPrice] = useState(1200);
+  const [bankApiToken, setBankApiToken] = useState('');
+  const [bankCheckingEnabled, setBankCheckingEnabled] = useState(false);
 
   // INDIVIDUÁLNÍ NASTAVENÍ (MODAL)
   const [pricingModalClub, setPricingModalClub] = useState(null);
@@ -58,22 +60,27 @@ export default function SuperadminPortal() {
   }
 
   async function fetchGlobalSettings() {
-    const { data } = await supabase.from('system_settings').select('global_annual_price').eq('id', 1).single();
-    if (data && data.global_annual_price) {
-      setGlobalAnnualPrice(data.global_annual_price);
+    const { data } = await supabase.from('system_settings').select('*').eq('id', 1).single();
+    if (data) {
+      if (data.global_annual_price) setGlobalAnnualPrice(data.global_annual_price);
+      if (data.fio_api_token) setBankApiToken(data.fio_api_token);
+      if (data.bank_checking_enabled !== null) setBankCheckingEnabled(data.bank_checking_enabled);
     }
   }
 
-  const saveGlobalPrice = async (e) => {
+  const saveSystemSettings = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('system_settings').upsert({ 
       id: 1, 
-      global_annual_price: parseInt(globalAnnualPrice) 
+      global_annual_price: parseInt(globalAnnualPrice),
+      fio_api_token: bankApiToken,
+      bank_checking_enabled: bankCheckingEnabled
     });
+    
     if (error) {
-      alert('Chyba při ukládání globální ceny: ' + error.message);
+      alert('Chyba při ukládání nastavení: ' + error.message);
     } else {
-      alert(`Globální ROČNÍ cena byla úspěšně změněna na ${globalAnnualPrice} Kč! (Měsíční vychází na ${calculateMonthlyPrice(globalAnnualPrice)} Kč).`);
+      alert('Globální nastavení (Ceník a Banka) bylo úspěšně uloženo!');
       fetchClubs(); 
     }
   };
@@ -171,35 +178,74 @@ export default function SuperadminPortal() {
 
       <div style={{ maxWidth: '1200px', margin: '40px auto', padding: '0 20px' }}>
         
-        {/* GLOBÁLNÍ NASTAVENÍ CENY */}
-        <div style={{ background: '#e3f2fd', padding: '30px', borderRadius: '12px', border: '2px solid #0288d1', marginBottom: '30px', display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ flex: 1, minWidth: '300px' }}>
-            <h2 style={{ color: '#0288d1', margin: '0 0 10px 0' }}>🌍 Základní cena systému</h2>
-            <p style={{ margin: 0, color: '#555', fontSize: '0.9rem', maxWidth: '600px' }}>
-              Nastavte <strong>ROČNÍ</strong> cenu. Měsíční cena se automaticky vypočítá tak, že se roční částka vydělí 12 a navýší se o 20 %. Stávající klienti, kteří poctivě prodlužují, si zachovávají svou zafixovanou cenu.
-            </p>
-          </div>
-          <form onSubmit={saveGlobalPrice} style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ background: '#fff', padding: '10px 15px', borderRadius: '8px', border: '1px solid #90caf9', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#666', display: 'block' }}>Vypočtená měsíční:</span>
-              <strong style={{ fontSize: '1.2rem', color: '#0288d1' }}>{calculateMonthlyPrice(globalAnnualPrice)} Kč</strong>
-            </div>
+        {/* GLOBÁLNÍ NASTAVENÍ (CENY A BANKA) */}
+        <form onSubmit={saveSystemSettings} style={{ background: '#e3f2fd', padding: '30px', borderRadius: '12px', border: '2px solid #0288d1', marginBottom: '30px' }}>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px' }}>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input 
-                type="number" 
-                value={globalAnnualPrice} 
-                onChange={e => setGlobalAnnualPrice(e.target.value)} 
-                style={{ ...styles.input, width: '120px', margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#0288d1', textAlign: 'center' }} 
-                required 
-              />
-              <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#333' }}>Kč / Rok</span>
+            {/* Levý sloupec: Ceník */}
+            <div>
+              <h2 style={{ color: '#0288d1', margin: '0 0 10px 0' }}>🌍 Základní cena systému</h2>
+              <p style={{ margin: '0 0 15px 0', color: '#555', fontSize: '0.9rem' }}>
+                Nastavte ROČNÍ cenu. Měsíční se dopočítá (+ 20 %).
+              </p>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <div style={{ background: '#fff', padding: '10px 15px', borderRadius: '8px', border: '1px solid #90caf9', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#666', display: 'block' }}>Vypočtená měsíční:</span>
+                  <strong style={{ fontSize: '1.1rem', color: '#0288d1' }}>{calculateMonthlyPrice(globalAnnualPrice)} Kč</strong>
+                </div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input 
+                    type="number" 
+                    value={globalAnnualPrice} 
+                    onChange={e => setGlobalAnnualPrice(e.target.value)} 
+                    style={{ ...styles.input, width: '120px', margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#0288d1', textAlign: 'center' }} 
+                    required 
+                  />
+                  <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#333' }}>Kč / Rok</span>
+                </div>
+              </div>
             </div>
-            <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', padding: '12px 25px', margin: 0 }}>
-              Uložit ceník
+
+            {/* Pravý sloupec: Banka */}
+            <div style={{ borderLeft: '2px solid #bbdefb', paddingLeft: '20px' }}>
+              <h2 style={{ color: '#4caf50', margin: '0 0 10px 0' }}>🏦 Propojení s Bankou (API)</h2>
+              <p style={{ margin: '0 0 10px 0', color: '#555', fontSize: '0.9rem' }}>
+                Vložte token vaší banky (např. Fio) pro automatické párování došlých plateb a prodlužování licencí.
+              </p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input 
+                  type="password" 
+                  placeholder="Vložte tajný bankovní API Token..." 
+                  value={bankApiToken} 
+                  onChange={e => setBankApiToken(e.target.value)} 
+                  style={styles.input} 
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={bankCheckingEnabled} 
+                    onChange={e => setBankCheckingEnabled(e.target.checked)} 
+                    style={{ width: '20px', height: '20px' }}
+                  />
+                  <strong style={{ color: bankCheckingEnabled ? '#2e7d32' : '#d32f2f' }}>
+                    {bankCheckingEnabled ? 'Automatické kontroly zapnuty' : 'Kontroly vypnuty'}
+                  </strong>
+                </label>
+              </div>
+            </div>
+
+          </div>
+
+          <div style={{ marginTop: '25px', paddingTop: '20px', borderTop: '1px dashed #90caf9', textAlign: 'right' }}>
+            <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', padding: '12px 30px', width: 'auto' }}>
+              Uložit veškeré globální nastavení
             </button>
-          </form>
-        </div>
+          </div>
+        </form>
 
         {/* SEKCE GENERÁTORU KLÍČŮ */}
         <div style={{ background: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '30px', borderTop: '5px solid #2e7d32' }}>
