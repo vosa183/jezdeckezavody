@@ -14,17 +14,40 @@ export default function Brana() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
+  const [inviteToken, setInviteToken] = useState(null);
 
   useEffect(() => {
+    // 1. Zkontrolujeme, zda uživatel nepřišel přes pozvánkový odkaz (?invite=TOKEN)
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('invite');
+    if (token) {
+      setInviteToken(token);
+      setIsSignUp(true); // Předpokládáme, že si musí založit účet (pokud už má, přepne si to)
+    }
+    
     checkExistingSession();
   }, []);
 
-  // 1. Zkontrolujeme, jestli už uživatel náhodou není přihlášený (když se vrátí na bránu)
   async function checkExistingSession() {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser) {
         setStatusMessage('Ověřuji vaše oprávnění...');
+        
+        // Pokud kliknul na pozvánku, ale UŽ JE přihlášený, přiřadíme ho rovnou do stáje
+        if (inviteToken) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', authUser.id).single();
+            if (!existingMember) {
+              await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: authUser.id, role: invData.role }]);
+              // Aktualizujeme i profil, aby ho to házelo do správné stáje
+              await supabase.from('profiles').update({ club_id: invData.club_id }).eq('id', authUser.id);
+            }
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          }
+        }
+        
         await routeUser(authUser.id);
       } else {
         setLoading(false);
@@ -34,10 +57,8 @@ export default function Brana() {
     }
   }
 
-  // 2. Hlavní routovací mozek - zjistí, kdo jsi a kam patříš
   async function routeUser(userId) {
     try {
-      // A. Nejdříve zkontrolujeme globální speciální role z profilu
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).single();
       
       if (profile?.role === 'superadmin') {
@@ -53,28 +74,24 @@ export default function Brana() {
         return;
       }
 
-      // B. Pokud to je běžný smrtelník, zkontrolujeme jeho role ve stájích
       const { data: memberships } = await supabase.from('club_members').select('role').eq('user_id', userId);
       
       if (memberships && memberships.length > 0) {
         const roles = memberships.map(m => m.role);
         
-        // Jdeme podle nejvyšší/nejdůležitější role
         if (roles.includes('owner')) {
-          window.location.href = '/kone'; // Majitel stáje
+          window.location.href = '/kone'; 
         } else if (roles.includes('vet') || roles.includes('farrier')) {
-          window.location.href = '/pece'; // Veterinář a Kovář
+          window.location.href = '/pece'; 
         } else if (roles.includes('trainer')) {
-          window.location.href = '/trener'; // Trenér
+          window.location.href = '/trener'; 
         } else if (roles.includes('collaborator')) {
-          window.location.href = '/spolupracovnik'; // Groom / Ošetřovatel
+          window.location.href = '/spolupracovnik'; 
         } else {
-          window.location.href = '/jezdec'; // Výchozí fallback (Jezdec / Rider)
+          window.location.href = '/jezdec'; 
         }
       } else {
-        // C. Pokud nemá ještě vůbec žádnou stáj (např. čerstvá registrace bez pozvánky)
-        // Pošleme ho do /kone, protože tam si může založit "Trial stáj" 
-        // nebo tam na něj vyskočí hláška, že čeká na přidání.
+        // Fallback pro jistotu
         window.location.href = '/kone';
       }
     } catch (error) {
@@ -83,7 +100,6 @@ export default function Brana() {
     }
   }
 
-  // 3. Odeslání formuláře (Přihlášení / Registrace)
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -97,18 +113,52 @@ export default function Brana() {
         setLoading(false);
         setStatusMessage('');
       } else if (data?.user) {
-        setStatusMessage('Registrace úspěšná, vytvářím profil...');
-        // Vytvoříme prázdný profil, aby nevybuchla databáze
-        await supabase.from('profiles').insert([{ 
-          id: data.user.id, 
-          email: email, 
-          license_type: 'Hobby' 
-        }]);
+        setStatusMessage('Registrace úspěšná, vytvářím vaši stáj...');
         
-        // Zrovna ho přesměrujeme
+        let targetClubId = null; 
+        let role = 'owner';
+
+        // 1. Přišel přes pozvánku? Zjistíme, kam ho přidat.
+        if (inviteToken) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) { 
+            targetClubId = invData.club_id; 
+            role = invData.role; 
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id); 
+          }
+        } 
+
+        // 2. TADY JE OPRAVA: Pokud nemá pozvánku, VYTVOŘÍME MU ZKUŠEBNÍ STÁJ a svážeme ji s placením!
+        if (!targetClubId) {
+          const trialEnd = new Date(); 
+          trialEnd.setDate(trialEnd.getDate() + 14);
+          const { data: newClub } = await supabase.from('clubs').insert([{ 
+            name: 'Moje Stáj', 
+            is_active: true, 
+            trial_ends_at: trialEnd.toISOString() 
+          }]).select().single();
+          
+          if (newClub) targetClubId = newClub.id;
+        }
+
+        // 3. Propojíme uživatele s jeho novou (nebo cizí) stájí a zapíšeme mu to i do profilu
+        if (targetClubId) {
+          await supabase.from('club_members').insert([{ club_id: targetClubId, user_id: data.user.id, role: role }]);
+          await supabase.from('profiles').insert([{ 
+            id: data.user.id, 
+            email: email, 
+            license_type: 'Hobby', 
+            club_id: targetClubId // DŮLEŽITÉ! 
+          }]);
+        } else {
+          // Záložní plán (nemělo by se stát)
+          await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Hobby' }]);
+        }
+        
         await routeUser(data.user.id);
       }
     } else {
+      // PŘIHLÁŠENÍ EXISTUJÍCÍHO UŽIVATELE
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       
       if (error) {
@@ -117,6 +167,20 @@ export default function Brana() {
         setStatusMessage('');
       } else if (data?.user) {
         setStatusMessage('Přihlášení úspěšné, otevírám dveře...');
+        
+        // Zpracování pozvánky pro někoho, kdo se jen přihlašuje
+        if (inviteToken) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          if (invData && !invData.is_accepted) {
+            const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', data.user.id).single();
+            if (!existingMember) {
+              await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: data.user.id, role: invData.role }]);
+              await supabase.from('profiles').update({ club_id: invData.club_id }).eq('id', data.user.id);
+            }
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          }
+        }
+        
         await routeUser(data.user.id);
       }
     }
@@ -143,7 +207,9 @@ export default function Brana() {
           <div style={styles.header}>
             <div style={styles.logoCircle}>🐎</div>
             <h1 style={styles.title}>Jezdecké Impérium</h1>
-            <p style={styles.subtitle}>Jeden systém, všechny role. Vstupte do své stáje.</p>
+            <p style={styles.subtitle}>
+              {inviteToken ? 'Byli jste pozváni do týmu! Přihlaste se nebo registrujte.' : 'Jeden systém, všechny role. Vstupte do své stáje.'}
+            </p>
           </div>
 
           <form onSubmit={handleAuth} style={styles.form}>
@@ -172,7 +238,7 @@ export default function Brana() {
             </div>
             
             <button type="submit" style={styles.btnPrimary}>
-              {isSignUp ? 'ZAREGISTROVAT SE A VSTOUPIT' : 'PŘIHLÁSIT SE'}
+              {isSignUp ? (inviteToken ? 'ZAREGISTROVAT SE A PŘIJMOUT' : 'ZAREGISTROVAT SE A VSTOUPIT') : 'PŘIHLÁSIT SE'}
             </button>
           </form>
 
@@ -188,7 +254,6 @@ export default function Brana() {
         </div>
       </div>
       
-      {/* Informační panely pod přihlašováním */}
       <div style={styles.infoSection}>
         <div style={styles.infoCard}>
           <h3 style={styles.infoTitle}>🏢 Pro Majitele stájí</h3>
@@ -203,7 +268,6 @@ export default function Brana() {
           <p style={styles.infoText}>Sledujte své hodnocení, tréninkové deníky a přihlašujte se na vypsané závody jedním kliknutím.</p>
         </div>
       </div>
-
     </div>
   );
 }
@@ -221,152 +285,24 @@ const globalStyles = `
 `;
 
 const styles = {
-  container: { 
-    minHeight: '100vh', 
-    fontFamily: 'sans-serif',
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  loaderContainer: {
-    height: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f4ece4'
-  },
-  spinner: {
-    width: '50px',
-    height: '50px',
-    border: '5px solid #d7ccc8',
-    borderTop: '5px solid #5d4037',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  },
-  heroSection: {
-    background: 'linear-gradient(135deg, #3e2723 0%, #5d4037 100%)',
-    padding: '60px 20px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '60vh'
-  },
-  glassCard: {
-    background: 'rgba(255, 255, 255, 0.95)',
-    padding: '40px',
-    borderRadius: '16px',
-    boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-    width: '100%',
-    maxWidth: '450px',
-    boxSizing: 'border-box'
-  },
-  header: {
-    textAlign: 'center',
-    marginBottom: '30px'
-  },
-  logoCircle: {
-    width: '70px',
-    height: '70px',
-    background: '#5d4037',
-    color: '#fff',
-    fontSize: '2rem',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: '0 auto 15px auto',
-    boxShadow: '0 4px 10px rgba(93, 64, 55, 0.3)'
-  },
-  title: {
-    margin: '0 0 5px 0',
-    color: '#3e2723',
-    fontSize: '1.8rem',
-    fontWeight: '900'
-  },
-  subtitle: {
-    margin: 0,
-    color: '#8d6e63',
-    fontSize: '0.9rem'
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px'
-  },
-  inputGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '5px'
-  },
-  label: {
-    fontSize: '0.85rem',
-    fontWeight: 'bold',
-    color: '#555'
-  },
-  input: {
-    padding: '14px',
-    borderRadius: '8px',
-    border: '1px solid #ccc',
-    fontSize: '1rem',
-    width: '100%',
-    boxSizing: 'border-box',
-    transition: 'border-color 0.2s',
-    outline: 'none'
-  },
-  btnPrimary: {
-    padding: '16px',
-    background: '#5d4037',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    marginTop: '10px',
-    transition: 'background 0.2s',
-    boxShadow: '0 4px 6px rgba(93, 64, 55, 0.2)'
-  },
-  footer: {
-    marginTop: '25px',
-    textAlign: 'center',
-    borderTop: '1px solid #eee',
-    paddingTop: '20px'
-  },
-  btnText: {
-    background: 'none',
-    border: 'none',
-    color: '#5d4037',
-    fontWeight: 'bold',
-    textDecoration: 'underline',
-    cursor: 'pointer',
-    fontSize: '0.9rem'
-  },
-  infoSection: {
-    display: 'flex',
-    justifyContent: 'center',
-    gap: '20px',
-    padding: '40px 20px',
-    flexWrap: 'wrap',
-    maxWidth: '1200px',
-    margin: '0 auto'
-  },
-  infoCard: {
-    background: '#fff',
-    padding: '25px',
-    borderRadius: '12px',
-    flex: '1 1 300px',
-    boxShadow: '0 4px 10px rgba(0,0,0,0.05)',
-    borderTop: '4px solid #8d6e63'
-  },
-  infoTitle: {
-    margin: '0 0 10px 0',
-    color: '#3e2723',
-    fontSize: '1.2rem'
-  },
-  infoText: {
-    margin: 0,
-    color: '#666',
-    fontSize: '0.9rem',
-    lineHeight: '1.5'
-  }
+  container: { minHeight: '100vh', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column' },
+  loaderContainer: { height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4ece4' },
+  spinner: { width: '50px', height: '50px', border: '5px solid #d7ccc8', borderTop: '5px solid #5d4037', borderRadius: '50%', animation: 'spin 1s linear infinite' },
+  heroSection: { background: 'linear-gradient(135deg, #3e2723 0%, #5d4037 100%)', padding: '60px 20px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' },
+  glassCard: { background: 'rgba(255, 255, 255, 0.95)', padding: '40px', borderRadius: '16px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '450px', boxSizing: 'border-box' },
+  header: { textAlign: 'center', marginBottom: '30px' },
+  logoCircle: { width: '70px', height: '70px', background: '#5d4037', color: '#fff', fontSize: '2rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 15px auto', boxShadow: '0 4px 10px rgba(93, 64, 55, 0.3)' },
+  title: { margin: '0 0 5px 0', color: '#3e2723', fontSize: '1.8rem', fontWeight: '900' },
+  subtitle: { margin: 0, color: '#8d6e63', fontSize: '0.9rem' },
+  form: { display: 'flex', flexDirection: 'column', gap: '20px' },
+  inputGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  label: { fontSize: '0.85rem', fontWeight: 'bold', color: '#555' },
+  input: { padding: '14px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '1rem', width: '100%', boxSizing: 'border-box', transition: 'border-color 0.2s', outline: 'none' },
+  btnPrimary: { padding: '16px', background: '#5d4037', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', marginTop: '10px', transition: 'background 0.2s', boxShadow: '0 4px 6px rgba(93, 64, 55, 0.2)' },
+  footer: { marginTop: '25px', textAlign: 'center', borderTop: '1px solid #eee', paddingTop: '20px' },
+  btnText: { background: 'none', border: 'none', color: '#5d4037', fontWeight: 'bold', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.9rem' },
+  infoSection: { display: 'flex', justifyContent: 'center', gap: '20px', padding: '40px 20px', flexWrap: 'wrap', maxWidth: '1200px', margin: '0 auto' },
+  infoCard: { background: '#fff', padding: '25px', borderRadius: '12px', flex: '1 1 300px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', borderTop: '4px solid #8d6e63' },
+  infoTitle: { margin: '0 0 10px 0', color: '#3e2723', fontSize: '1.2rem' },
+  infoText: { margin: 0, color: '#666', fontSize: '0.9rem', lineHeight: '1.5' }
 };
