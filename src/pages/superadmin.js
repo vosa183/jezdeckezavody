@@ -17,14 +17,20 @@ export default function SuperadminPortal() {
   const [adminGenEmail, setAdminGenEmail] = useState('');
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
-  // GLOBÁLNÍ NASTAVENÍ
-  const [globalPrice, setGlobalPrice] = useState(990);
+  // GLOBÁLNÍ NASTAVENÍ (ROČNÍ)
+  const [globalAnnualPrice, setGlobalAnnualPrice] = useState(1200);
 
   // INDIVIDUÁLNÍ NASTAVENÍ (MODAL)
   const [pricingModalClub, setPricingModalClub] = useState(null);
-  const [customPrice, setCustomPrice] = useState('');
-  const [lockedPrice, setLockedPrice] = useState('');
+  const [customAnnualPrice, setCustomAnnualPrice] = useState('');
+  const [lockedAnnualPrice, setLockedAnnualPrice] = useState('');
   const [maxHorses, setMaxHorses] = useState('');
+
+  // Pomocná funkce pro výpočet měsíční ceny (+20 %)
+  const calculateMonthlyPrice = (annualPrice) => {
+    if (!annualPrice) return 0;
+    return Math.round((annualPrice / 12) * 1.2);
+  };
 
   useEffect(() => { 
     checkAdmin(); 
@@ -52,9 +58,9 @@ export default function SuperadminPortal() {
   }
 
   async function fetchGlobalSettings() {
-    const { data } = await supabase.from('system_settings').select('global_monthly_price').eq('id', 1).single();
-    if (data) {
-      setGlobalPrice(data.global_monthly_price);
+    const { data } = await supabase.from('system_settings').select('global_annual_price').eq('id', 1).single();
+    if (data && data.global_annual_price) {
+      setGlobalAnnualPrice(data.global_annual_price);
     }
   }
 
@@ -62,13 +68,13 @@ export default function SuperadminPortal() {
     e.preventDefault();
     const { error } = await supabase.from('system_settings').upsert({ 
       id: 1, 
-      global_monthly_price: parseInt(globalPrice) 
+      global_annual_price: parseInt(globalAnnualPrice) 
     });
     if (error) {
       alert('Chyba při ukládání globální ceny: ' + error.message);
     } else {
-      alert(`Globální cena byla úspěšně změněna na ${globalPrice} Kč! Všichni noví klienti pojedou za tuto cenu.`);
-      fetchClubs(); // Obnovíme tabulku, ať se to propíše
+      alert(`Globální ROČNÍ cena byla úspěšně změněna na ${globalAnnualPrice} Kč! (Měsíční vychází na ${calculateMonthlyPrice(globalAnnualPrice)} Kč).`);
+      fetchClubs(); 
     }
   };
 
@@ -123,16 +129,16 @@ export default function SuperadminPortal() {
 
   const handleCustomPricing = (club) => {
     setPricingModalClub(club);
-    setCustomPrice(club.custom_price || '');
-    setLockedPrice(club.locked_price || '');
+    setCustomAnnualPrice(club.custom_annual_price || '');
+    setLockedAnnualPrice(club.locked_annual_price || '');
     setMaxHorses(club.max_horses || 50);
   };
 
   const saveCustomPricing = async (e) => {
     e.preventDefault();
     const { error } = await supabase.from('clubs').update({
-      custom_price: customPrice ? parseInt(customPrice) : null,
-      locked_price: lockedPrice ? parseInt(lockedPrice) : null,
+      custom_annual_price: customAnnualPrice ? parseInt(customAnnualPrice) : null,
+      locked_annual_price: lockedAnnualPrice ? parseInt(lockedAnnualPrice) : null,
       max_horses: parseInt(maxHorses) || 50
     }).eq('id', pricingModalClub.id);
 
@@ -146,9 +152,9 @@ export default function SuperadminPortal() {
   };
 
   const calculateEffectivePrice = (club) => {
-    if (club.custom_price) return { price: club.custom_price, type: 'Individuální', color: '#e65100' };
-    if (club.locked_price) return { price: club.locked_price, type: 'Zafixovaná', color: '#2e7d32' };
-    return { price: globalPrice, type: 'Globální (Dle ceníku)', color: '#0288d1' };
+    if (club.custom_annual_price) return { annual: club.custom_annual_price, monthly: calculateMonthlyPrice(club.custom_annual_price), type: 'Individuální', color: '#e65100' };
+    if (club.locked_annual_price) return { annual: club.locked_annual_price, monthly: calculateMonthlyPrice(club.locked_annual_price), type: 'Zafixovaná', color: '#2e7d32' };
+    return { annual: globalAnnualPrice, monthly: calculateMonthlyPrice(globalAnnualPrice), type: 'Globální (Dle ceníku)', color: '#0288d1' };
   };
 
   if (loading) return <div style={styles.loader}>Ověřuji oprávnění velitelství...</div>;
@@ -167,23 +173,30 @@ export default function SuperadminPortal() {
         
         {/* GLOBÁLNÍ NASTAVENÍ CENY */}
         <div style={{ background: '#e3f2fd', padding: '30px', borderRadius: '12px', border: '2px solid #0288d1', marginBottom: '30px', display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
+          <div style={{ flex: 1, minWidth: '300px' }}>
             <h2 style={{ color: '#0288d1', margin: '0 0 10px 0' }}>🌍 Základní cena systému</h2>
             <p style={{ margin: 0, color: '#555', fontSize: '0.9rem', maxWidth: '600px' }}>
-              Změna této ceny ovlivní všechny <strong>nové zákazníky</strong> a ty, kterým licence propadla o více než 12 hodin. Stávající klienti, kteří poctivě prodlužují, si zachovávají svou zafixovanou cenu.
+              Nastavte <strong>ROČNÍ</strong> cenu. Měsíční cena se automaticky vypočítá tak, že se roční částka vydělí 12 a navýší se o 20 %. Stávající klienti, kteří poctivě prodlužují, si zachovávají svou zafixovanou cenu.
             </p>
           </div>
-          <form onSubmit={saveGlobalPrice} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <input 
-              type="number" 
-              value={globalPrice} 
-              onChange={e => setGlobalPrice(e.target.value)} 
-              style={{ ...styles.input, width: '150px', margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#0288d1' }} 
-              required 
-            />
-            <span style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>Kč / Měsíc</span>
+          <form onSubmit={saveGlobalPrice} style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ background: '#fff', padding: '10px 15px', borderRadius: '8px', border: '1px solid #90caf9', textAlign: 'center' }}>
+              <span style={{ fontSize: '0.8rem', color: '#666', display: 'block' }}>Vypočtená měsíční:</span>
+              <strong style={{ fontSize: '1.2rem', color: '#0288d1' }}>{calculateMonthlyPrice(globalAnnualPrice)} Kč</strong>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input 
+                type="number" 
+                value={globalAnnualPrice} 
+                onChange={e => setGlobalAnnualPrice(e.target.value)} 
+                style={{ ...styles.input, width: '120px', margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#0288d1', textAlign: 'center' }} 
+                required 
+              />
+              <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#333' }}>Kč / Rok</span>
+            </div>
             <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', padding: '12px 25px', margin: 0 }}>
-              Uložit globální cenu
+              Uložit ceník
             </button>
           </form>
         </div>
@@ -220,7 +233,7 @@ export default function SuperadminPortal() {
                   <th style={{ padding: '15px' }}>Stáj / Klub</th>
                   <th style={{ padding: '15px' }}>Zodpovědná osoba</th>
                   <th style={{ padding: '15px' }}>Stav licence</th>
-                  <th style={{ padding: '15px' }}>Platná Cena</th>
+                  <th style={{ padding: '15px' }}>Platná Cena (Rok / Měsíc)</th>
                   <th style={{ padding: '15px' }}>SaaS Nastavení</th>
                 </tr>
               </thead>
@@ -248,7 +261,8 @@ export default function SuperadminPortal() {
                       </td>
                       <td style={{ padding: '15px', fontSize: '0.9rem' }}>{status}</td>
                       <td style={{ padding: '15px' }}>
-                        <strong style={{ fontSize: '1.1rem', color: pricingInfo.color }}>{pricingInfo.price} Kč</strong><br/>
+                        <strong style={{ fontSize: '1.1rem', color: pricingInfo.color }}>{pricingInfo.annual} Kč / rok</strong><br/>
+                        <span style={{ fontSize: '0.85rem', color: '#555' }}>({pricingInfo.monthly} Kč / měsíc)</span><br/>
                         <span style={{ fontSize: '0.75rem', color: '#888' }}>{pricingInfo.type}</span>
                       </td>
                       <td style={{ padding: '15px' }}>
@@ -282,34 +296,44 @@ export default function SuperadminPortal() {
             
             <form onSubmit={saveCustomPricing} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               
-              <div style={{ background: '#f5f5f5', padding: '10px', borderRadius: '6px', borderLeft: '4px solid #0288d1' }}>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#333' }}>
-                  Aktuální globální cena v systému je: <strong>{globalPrice} Kč</strong>
+              <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '6px', borderLeft: '4px solid #0288d1' }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', color: '#333' }}>
+                  Aktuální globální cena: <strong>{globalAnnualPrice} Kč / rok</strong> ({calculateMonthlyPrice(globalAnnualPrice)} Kč / měsíc).
                 </p>
               </div>
 
               <div>
-                <label style={styles.formLabel}>1. Individuální cena (Nejvyšší priorita)</label>
-                <input 
-                  type="number" 
-                  placeholder="Např. 500 (Nechte prázdné pro ignorování)" 
-                  value={customPrice} 
-                  onChange={e => setCustomPrice(e.target.value)} 
-                  style={styles.input} 
-                />
+                <label style={styles.formLabel}>1. Individuální ROČNÍ cena (Nejvyšší priorita)</label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <input 
+                    type="number" 
+                    placeholder="Např. 500" 
+                    value={customAnnualPrice} 
+                    onChange={e => setCustomAnnualPrice(e.target.value)} 
+                    style={{ ...styles.input, margin: 0 }} 
+                  />
+                  <span style={{ fontSize: '0.9rem', color: '#666', whiteSpace: 'nowrap' }}>
+                    ={customAnnualPrice ? calculateMonthlyPrice(customAnnualPrice) : 0} Kč / měsíc
+                  </span>
+                </div>
                 <small style={{ color: '#888' }}>Tato cena přebije všechno. Vhodné pro speciální dohody.</small>
               </div>
 
               <div>
-                <label style={styles.formLabel}>2. Zafixovaná cena (Ochrana stávajících klientů)</label>
-                <input 
-                  type="number" 
-                  placeholder="Např. 790 (Cena před zdražením)" 
-                  value={lockedPrice} 
-                  onChange={e => setLockedPrice(e.target.value)} 
-                  style={styles.input} 
-                />
-                <small style={{ color: '#888' }}>Tuto cenu klient platí, pokud nepřeruší předplatné. Pokud má pauzu delší než 12h, při další platbě systém toto pole smaže a napálí mu Globální cenu.</small>
+                <label style={styles.formLabel}>2. Zafixovaná ROČNÍ cena (Ochrana stávajících)</label>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <input 
+                    type="number" 
+                    placeholder="Např. 790" 
+                    value={lockedAnnualPrice} 
+                    onChange={e => setLockedAnnualPrice(e.target.value)} 
+                    style={{ ...styles.input, margin: 0 }} 
+                  />
+                  <span style={{ fontSize: '0.9rem', color: '#666', whiteSpace: 'nowrap' }}>
+                    ={lockedAnnualPrice ? calculateMonthlyPrice(lockedAnnualPrice) : 0} Kč / měsíc
+                  </span>
+                </div>
+                <small style={{ color: '#888' }}>Tuto cenu klient platí, dokud nepřeruší předplatné o více než 12h.</small>
               </div>
 
               <div style={{ marginTop: '10px', borderTop: '1px dashed #ccc', paddingTop: '15px' }}>
