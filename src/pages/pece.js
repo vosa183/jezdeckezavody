@@ -44,11 +44,18 @@ export default function PortalPece() {
       
       if (authUser && token) {
         const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
+        
         if (invData && !invData.is_accepted && invData.email === authUser.email) {
           const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', authUser.id).single();
+          
           if (!existingMember) {
-            await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: authUser.id, role: invData.role }]);
+            await supabase.from('club_members').insert([{ 
+              club_id: invData.club_id, 
+              user_id: authUser.id, 
+              role: invData.role 
+            }]);
           }
+          
           await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
           window.history.replaceState({}, document.title, window.location.pathname);
         }
@@ -56,7 +63,10 @@ export default function PortalPece() {
         setInviteToken(token); 
         setIsSignUp(true);
         const { data: invData } = await supabase.from('invitations').select('*').eq('token', token).single();
-        if (invData && !invData.is_accepted) setEmail(invData.email);
+        
+        if (invData && !invData.is_accepted) {
+          setEmail(invData.email);
+        }
       }
 
       if (authUser) {
@@ -64,14 +74,24 @@ export default function PortalPece() {
         
         if (memberships && memberships.length > 0) {
           const isSpecialist = memberships.some(m => m.role === 'vet' || m.role === 'farrier');
+          
           if (!isSpecialist) {
             window.location.href = '/kone';
             return;
           }
-          setMyMemberships(memberships);
-          const clubIds = memberships.map(m => m.club_id);
-          const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
-          setClientHorses(horses || []);
+          
+          // OPRAVA: Odfiltrujeme výchozí testovací stáj z pohledu specialisty
+          const realMemberships = memberships.filter(m => m.club_id !== '00000000-0000-0000-0000-000000000000');
+          setMyMemberships(realMemberships);
+          
+          const clubIds = realMemberships.map(m => m.club_id);
+          
+          if (clubIds.length > 0) {
+            const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
+            setClientHorses(horses || []);
+          } else {
+            setClientHorses([]);
+          }
         }
         
         setUser(authUser);
@@ -86,24 +106,57 @@ export default function PortalPece() {
   const handleAuth = async (e) => {
     e.preventDefault(); 
     setLoading(true);
+    
     if (isSignUp) {
       const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else if (data?.user) {
+      
+      if (error) {
+        alert(error.message);
+      } else if (data?.user) {
         if (inviteToken) {
           const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          
           if (invData && !invData.is_accepted) {
             await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
-            await supabase.from('club_members').insert([{ club_id: invData.club_id, user_id: data.user.id, role: invData.role }]);
-            await supabase.from('profiles').insert([{ id: data.user.id, email: email, license_type: 'Profi', club_id: invData.club_id }]);
+            await supabase.from('club_members').insert([{ 
+              club_id: invData.club_id, 
+              user_id: data.user.id, 
+              role: invData.role 
+            }]);
+            await supabase.from('profiles').insert([{ 
+              id: data.user.id, 
+              email: email, 
+              license_type: 'Profi', 
+              club_id: invData.club_id 
+            }]);
           }
         }
         window.location.href = window.location.pathname;
       }
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert('Chybné přihlášení: ' + error.message); 
-      else window.location.href = window.location.pathname;
+      
+      if (error) {
+        alert('Chybné přihlášení: ' + error.message); 
+      } else {
+        if (inviteToken && data?.user) {
+          const { data: invData } = await supabase.from('invitations').select('*').eq('token', inviteToken).single();
+          
+          if (invData && !invData.is_accepted) {
+            const { data: existingMember } = await supabase.from('club_members').select('*').eq('club_id', invData.club_id).eq('user_id', data.user.id).single();
+            
+            if (!existingMember) {
+              await supabase.from('club_members').insert([{ 
+                club_id: invData.club_id, 
+                user_id: data.user.id, 
+                role: invData.role 
+              }]);
+            }
+            await supabase.from('invitations').update({ is_accepted: true }).eq('id', invData.id);
+          }
+        }
+        window.location.href = window.location.pathname;
+      }
     }
     setLoading(false);
   };
@@ -114,6 +167,7 @@ export default function PortalPece() {
       full_name: profile.full_name, 
       bank_account: profile.bank_account 
     }).eq('id', user.id);
+    
     setIsProfileEditing(false);
     alert('Údaje uloženy.');
   };
@@ -131,6 +185,7 @@ export default function PortalPece() {
       const fExt = docFile.name.split('.').pop(); 
       const fName = `faktura_${Math.random()}.${fExt}`;
       const { error: upErr } = await supabase.storage.from('horse_docs').upload(fName, docFile);
+      
       if (!upErr) { 
         const { data } = supabase.storage.from('horse_docs').getPublicUrl(fName); 
         attUrl = data.publicUrl; 
@@ -149,7 +204,7 @@ export default function PortalPece() {
       attachment_url: attUrl 
     }]);
 
-    // Pokud chce proplatit, vytvoříme požadavek na platbu
+    // Pokud chce proplatit, vytvoříme požadavek na platbu (pro QR platby)
     if (newLog.requestPayment && newLog.cost > 0) {
       await supabase.from('payments').insert([{
         club_id: clubId,
@@ -160,16 +215,25 @@ export default function PortalPece() {
       }]);
     }
     
-    if (diaryErr) alert(diaryErr.message);
-    else { 
+    if (diaryErr) {
+      alert(diaryErr.message);
+    } else { 
       alert('Záznam úspěšně odeslán majiteli!'); 
       setActiveHorseId(null); 
-      setNewLog({ date: new Date().toISOString().split('T')[0], type: 'Veterinář', notes: '', cost: 0, requestPayment: false }); 
+      setNewLog({ 
+        date: new Date().toISOString().split('T')[0], 
+        type: 'Veterinář', 
+        notes: '', 
+        cost: 0, 
+        requestPayment: false 
+      }); 
       setDocFile(null); 
     }
   };
 
-  if (loading) return <div style={styles.loader}>Připojuji ordinaci...</div>;
+  if (loading) {
+    return <div style={styles.loader}>Připojuji ordinaci...</div>;
+  }
 
   const horsesByClub = myMemberships.map(membership => ({
     clubName: membership.clubs?.name || 'Neznámá stáj', 
@@ -180,14 +244,25 @@ export default function PortalPece() {
 
   return (
     <div style={styles.container}>
-      <Head><title>Portál Péče | Veterinář & Kovář</title></Head>
+      <Head>
+        <title>Portál Péče | Veterinář & Kovář</title>
+      </Head>
 
       {user && (
         <div style={styles.topNav}>
-          <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>🩺 Portál Péče (VE/KO)</h2>
+          <h2 style={{ margin: 0, color: '#fff', fontSize: '1.2rem' }}>
+            🩺 Portál Péče (VE/KO)
+          </h2>
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-            <span style={{ color: '#e0f2f1', fontSize: '0.9rem' }}>{profile?.full_name || profile?.email}</span>
-            <button onClick={() => supabase.auth.signOut().then(() => window.location.reload())} style={styles.btnNavOutline}>Odhlásit</button>
+            <span style={{ color: '#e0f2f1', fontSize: '0.9rem' }}>
+              {profile?.full_name || profile?.email}
+            </span>
+            <button 
+              onClick={() => supabase.auth.signOut().then(() => window.location.reload())} 
+              style={styles.btnNavOutline}
+            >
+              Odhlásit
+            </button>
           </div>
         </div>
       )}
@@ -207,12 +282,36 @@ export default function PortalPece() {
               </>
             )}
           </div>
+          
           <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <input type="email" placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} style={styles.input} required disabled={!!inviteToken && isSignUp} />
-            <input type="password" placeholder="Heslo" value={password} onChange={e => setPassword(e.target.value)} style={styles.input} required />
-            <button type="submit" style={styles.btnPrimary}>{isSignUp ? 'ZAREGISTROVAT A PŘIJMOUT' : 'PŘIHLÁSIT SE'}</button>
+            <input 
+              type="email" 
+              placeholder="E-mail" 
+              value={email} 
+              onChange={e => setEmail(e.target.value)} 
+              style={styles.input} 
+              required 
+              disabled={!!inviteToken && isSignUp} 
+            />
+            <input 
+              type="password" 
+              placeholder="Heslo" 
+              value={password} 
+              onChange={e => setPassword(e.target.value)} 
+              style={styles.input} 
+              required 
+            />
+            <button type="submit" style={styles.btnPrimary}>
+              {isSignUp ? 'ZAREGISTROVAT A PŘIJMOUT' : 'PŘIHLÁSIT SE'}
+            </button>
           </form>
-          <button onClick={() => setIsSignUp(!isSignUp)} style={styles.btnText}>{isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se.'}</button>
+          
+          <button 
+            onClick={() => setIsSignUp(!isSignUp)} 
+            style={styles.btnText}
+          >
+            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se.'}
+          </button>
         </div>
       ) : (
         <div style={styles.mainContent}>
@@ -225,16 +324,35 @@ export default function PortalPece() {
                   Číslo účtu pro platby: <strong>{profile?.bank_account || 'Nenastaveno'}</strong>
                 </p>
               </div>
-              <button onClick={() => setIsProfileEditing(!isProfileEditing)} style={styles.btnNavOutline}>
+              <button 
+                onClick={() => setIsProfileEditing(!isProfileEditing)} 
+                style={styles.btnNavOutline}
+              >
                 {isProfileEditing ? 'Zrušit' : 'Upravit IBAN'}
               </button>
             </div>
             
             {isProfileEditing && (
               <form onSubmit={updateProfileDetails} style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-                <input type="text" placeholder="Vaše jméno" value={profile?.full_name || ''} onChange={e => setProfile({...profile, full_name: e.target.value})} style={styles.inputSmall} required />
-                <input type="text" placeholder="IBAN / Číslo účtu" value={profile?.bank_account || ''} onChange={e => setProfile({...profile, bank_account: e.target.value})} style={styles.inputSmall} required />
-                <button type="submit" style={{ ...styles.btnPrimary, padding: '5px 20px' }}>Uložit</button>
+                <input 
+                  type="text" 
+                  placeholder="Vaše jméno" 
+                  value={profile?.full_name || ''} 
+                  onChange={e => setProfile({...profile, full_name: e.target.value})} 
+                  style={styles.inputSmall} 
+                  required 
+                />
+                <input 
+                  type="text" 
+                  placeholder="IBAN / Číslo účtu" 
+                  value={profile?.bank_account || ''} 
+                  onChange={e => setProfile({...profile, bank_account: e.target.value})} 
+                  style={styles.inputSmall} 
+                  required 
+                />
+                <button type="submit" style={{ ...styles.btnPrimary, padding: '5px 20px' }}>
+                  Uložit
+                </button>
               </form>
             )}
           </div>
@@ -251,7 +369,9 @@ export default function PortalPece() {
                 <div key={idx} style={styles.clubCard}>
                   <div style={styles.clubHeader}>
                     <h3 style={{ margin: 0, color: '#004d40' }}>🏢 {group.clubName}</h3>
-                    <span style={styles.roleBadge}>{group.role === 'vet' ? 'VE' : 'KO'}</span>
+                    <span style={styles.roleBadge}>
+                      {group.role === 'vet' ? 'VE - Veterinář' : 'KO - Kovář'}
+                    </span>
                   </div>
                   
                   <div style={{ padding: '15px' }}>
@@ -260,14 +380,22 @@ export default function PortalPece() {
                       return (
                         <div key={horse.id} style={styles.horseItem}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                            <img src={horse.photo_url || 'https://via.placeholder.com/60?text=KŮŇ'} style={styles.horseImage} />
+                            <img 
+                              src={horse.photo_url || 'https://via.placeholder.com/60?text=KŮŇ'} 
+                              style={styles.horseImage} 
+                            />
                             <div style={{ flex: 1, minWidth: '200px' }}>
                               <strong style={{ fontSize: '1.1rem', color: '#333' }}>{horse.name}</strong>
                               <div style={{ fontSize: '0.8rem', color: '#666' }}>
                                 Očkování: {horse.vaccination_date ? new Date(horse.vaccination_date).toLocaleDateString() : '?'}
                               </div>
                             </div>
-                            <button onClick={() => openLogForm(horse.id, group.role === 'farrier' ? 'Kovář' : 'Veterinář')} style={styles.btnAction}>+ Zapsat úkon</button>
+                            <button 
+                              onClick={() => openLogForm(horse.id, group.role === 'farrier' ? 'Kovář' : 'Veterinář')} 
+                              style={styles.btnAction}
+                            >
+                              + Zapsat úkon
+                            </button>
                           </div>
                           
                           {isFormOpen && (
@@ -276,19 +404,69 @@ export default function PortalPece() {
                                 <h4 style={{ margin: 0, color: '#00838f' }}>Nový záznam: {horse.name}</h4>
                                 <button type="button" onClick={() => setActiveHorseId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
                               </div>
+                              
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                                <div><label style={styles.label}>Datum</label><input type="date" value={newLog.date} onChange={e=>setNewLog({...newLog, date:e.target.value})} style={styles.inputSmall} required /></div>
-                                <div><label style={styles.label}>Kategorie</label><select value={newLog.type} onChange={e=>setNewLog({...newLog, type:e.target.value})} style={styles.inputSmall}><option value="Veterinář">Veterinář</option><option value="Zuby">Zuby</option><option value="Kovář">Kovář</option></select></div>
-                              </div>
-                              <div style={{ marginBottom: '10px' }}><label style={styles.label}>Popis</label><textarea placeholder="Co se dělalo..." value={newLog.notes} onChange={e=>setNewLog({...newLog, notes:e.target.value})} style={{ ...styles.inputSmall, height: '70px' }} required /></div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-                                <div><label style={styles.label}>Cena (Kč)</label><input type="number" placeholder="Částka" value={newLog.cost || ''} onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} style={styles.inputSmall} /></div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '20px' }}>
-                                  <input type="checkbox" id="payReq" checked={newLog.requestPayment} onChange={e => setNewLog({...newLog, requestPayment: e.target.checked})} />
-                                  <label htmlFor="payReq" style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Požádat o proplacení</label>
+                                <div>
+                                  <label style={styles.label}>Datum</label>
+                                  <input 
+                                    type="date" 
+                                    value={newLog.date} 
+                                    onChange={e=>setNewLog({...newLog, date:e.target.value})} 
+                                    style={styles.inputSmall} 
+                                    required 
+                                  />
+                                </div>
+                                <div>
+                                  <label style={styles.label}>Kategorie</label>
+                                  <select 
+                                    value={newLog.type} 
+                                    onChange={e=>setNewLog({...newLog, type:e.target.value})} 
+                                    style={styles.inputSmall}
+                                  >
+                                    <option value="Veterinář">Veterinář</option>
+                                    <option value="Zuby">Zuby</option>
+                                    <option value="Kovář">Kovář</option>
+                                  </select>
                                 </div>
                               </div>
-                              <button type="submit" style={{ ...styles.btnPrimary, width: '100%' }}>Odeslat majiteli</button>
+                              
+                              <div style={{ marginBottom: '10px' }}>
+                                <label style={styles.label}>Popis</label>
+                                <textarea 
+                                  placeholder="Co se dělalo..." 
+                                  value={newLog.notes} 
+                                  onChange={e=>setNewLog({...newLog, notes:e.target.value})} 
+                                  style={{ ...styles.inputSmall, height: '70px' }} 
+                                  required 
+                                />
+                              </div>
+                              
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+                                <div>
+                                  <label style={styles.label}>Cena (Kč)</label>
+                                  <input 
+                                    type="number" 
+                                    placeholder="Částka" 
+                                    value={newLog.cost || ''} 
+                                    onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} 
+                                    style={styles.inputSmall} 
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '20px' }}>
+                                  <input 
+                                    type="checkbox" 
+                                    id="payReq" 
+                                    checked={newLog.requestPayment} 
+                                    onChange={e => setNewLog({...newLog, requestPayment: e.target.checked})} 
+                                  />
+                                  <label htmlFor="payReq" style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                    Požádat o proplacení
+                                  </label>
+                                </div>
+                              </div>
+                              <button type="submit" style={{ ...styles.btnPrimary, width: '100%' }}>
+                                Odeslat majiteli
+                              </button>
                             </form>
                           )}
                         </div>
@@ -306,24 +484,153 @@ export default function PortalPece() {
 }
 
 const styles = {
-  container: { backgroundColor: '#e0f2f1', minHeight: '100vh', fontFamily: 'sans-serif' }, 
-  loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#00838f' }, 
-  topNav: { display: 'flex', background: '#006064', padding: '15px 20px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }, 
-  btnNavOutline: { background: 'transparent', border: '1px solid #80deea', color: '#80deea', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }, 
-  mainContent: { maxWidth: '1000px', margin: '0 auto', padding: '30px 20px' }, 
-  card: { backgroundColor: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }, 
-  grid: { display: 'grid', gridTemplateColumns: '1fr', gap: '25px' }, 
-  clubCard: { backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.04)', border: '1px solid #e0e0e0' }, 
-  clubHeader: { background: '#e0f7fa', padding: '15px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #b2ebf2' }, 
-  roleBadge: { background: '#00838f', color: '#fff', padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold' }, 
-  horseItem: { padding: '15px 0', borderBottom: '1px solid #f0f0f0', margin: '0 15px' }, 
-  horseImage: { width: '50px', height: '50px', borderRadius: '8px', objectFit: 'cover', border: '2px solid #b2ebf2' }, 
-  btnAction: { background: '#00838f', color: '#fff', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }, 
-  logForm: { marginTop: '15px', background: '#f5f5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }, 
-  label: { fontSize: '0.8rem', fontWeight: 'bold', color: '#555', display: 'block', marginBottom: '4px' }, 
-  input: { padding: '12px', borderRadius: '6px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }, 
-  inputSmall: { padding: '10px', borderRadius: '5px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' }, 
-  btnPrimary: { background: '#00838f', color: '#fff', border: 'none', padding: '14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }, 
-  btnText: { background: 'none', border: 'none', color: '#00838f', textDecoration: 'underline', width: '100%', marginTop: '15px', cursor: 'pointer', fontSize: '0.9rem' }, 
-  emptyState: { textAlign: 'center', padding: '50px', background: '#fff', borderRadius: '12px', color: '#888', border: '1px dashed #ccc' }
+  container: { 
+    backgroundColor: '#e0f2f1', 
+    minHeight: '100vh', 
+    fontFamily: 'sans-serif' 
+  }, 
+  loader: { 
+    height: '100vh', 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    fontWeight: 'bold', 
+    color: '#00838f' 
+  }, 
+  topNav: { 
+    display: 'flex', 
+    background: '#006064', 
+    padding: '15px 20px', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)' 
+  }, 
+  btnNavOutline: { 
+    background: 'transparent', 
+    border: '1px solid #80deea', 
+    color: '#80deea', 
+    padding: '6px 12px', 
+    borderRadius: '4px', 
+    fontWeight: 'bold', 
+    cursor: 'pointer', 
+    fontSize: '0.85rem' 
+  }, 
+  mainContent: { 
+    maxWidth: '1000px', 
+    margin: '0 auto', 
+    padding: '30px 20px' 
+  }, 
+  card: { 
+    backgroundColor: 'white', 
+    padding: '30px', 
+    borderRadius: '12px', 
+    boxShadow: '0 4px 15px rgba(0,0,0,0.05)' 
+  }, 
+  grid: { 
+    display: 'grid', 
+    gridTemplateColumns: '1fr', 
+    gap: '25px' 
+  }, 
+  clubCard: { 
+    backgroundColor: '#fff', 
+    borderRadius: '12px', 
+    overflow: 'hidden', 
+    boxShadow: '0 4px 10px rgba(0,0,0,0.04)', 
+    border: '1px solid #e0e0e0' 
+  }, 
+  clubHeader: { 
+    background: '#e0f7fa', 
+    padding: '15px 20px', 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    borderBottom: '2px solid #b2ebf2' 
+  }, 
+  roleBadge: { 
+    background: '#00838f', 
+    color: '#fff', 
+    padding: '4px 10px', 
+    borderRadius: '12px', 
+    fontSize: '0.75rem', 
+    fontWeight: 'bold' 
+  }, 
+  horseItem: { 
+    padding: '15px 0', 
+    borderBottom: '1px solid #f0f0f0', 
+    margin: '0 15px' 
+  }, 
+  horseImage: { 
+    width: '50px', 
+    height: '50px', 
+    borderRadius: '8px', 
+    objectFit: 'cover', 
+    border: '2px solid #b2ebf2' 
+  }, 
+  btnAction: { 
+    background: '#00838f', 
+    color: '#fff', 
+    border: 'none', 
+    padding: '8px 15px', 
+    borderRadius: '6px', 
+    cursor: 'pointer', 
+    fontWeight: 'bold', 
+    fontSize: '0.85rem',
+    transition: 'background 0.2s'
+  }, 
+  logForm: { 
+    marginTop: '15px', 
+    background: '#f5f5f5', 
+    padding: '15px', 
+    borderRadius: '8px', 
+    border: '1px solid #ddd' 
+  }, 
+  label: { 
+    fontSize: '0.8rem', 
+    fontWeight: 'bold', 
+    color: '#555', 
+    display: 'block', 
+    marginBottom: '4px' 
+  }, 
+  input: { 
+    padding: '12px', 
+    borderRadius: '6px', 
+    border: '1px solid #ccc', 
+    width: '100%', 
+    boxSizing: 'border-box' 
+  }, 
+  inputSmall: { 
+    padding: '10px', 
+    borderRadius: '5px', 
+    border: '1px solid #ccc', 
+    width: '100%', 
+    boxSizing: 'border-box' 
+  }, 
+  btnPrimary: { 
+    background: '#00838f', 
+    color: '#fff', 
+    border: 'none', 
+    padding: '14px', 
+    borderRadius: '6px', 
+    fontWeight: 'bold', 
+    cursor: 'pointer',
+    transition: 'background 0.2s'
+  }, 
+  btnText: { 
+    background: 'none', 
+    border: 'none', 
+    color: '#00838f', 
+    textDecoration: 'underline', 
+    width: '100%', 
+    marginTop: '15px', 
+    cursor: 'pointer', 
+    fontSize: '0.9rem' 
+  }, 
+  emptyState: { 
+    textAlign: 'center', 
+    padding: '50px', 
+    background: '#fff', 
+    borderRadius: '12px', 
+    color: '#888', 
+    border: '1px dashed #ccc' 
+  }
 };
