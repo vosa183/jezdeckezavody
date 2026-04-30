@@ -84,12 +84,7 @@ export default function StajoveImperium() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [inviteNewRole, setInviteNewRole] = useState('trainer');
 
-  const [adminView, setAdminView] = useState(false);
-  const [clubs, setClubs] = useState([]);
   const [licenseKeyInput, setLicenseKeyInput] = useState(''); 
-  const [editingClubDates, setEditingClubDates] = useState({});
-  const [adminGenEmail, setAdminGenEmail] = useState('');
-  const [adminGenDuration, setAdminGenDuration] = useState('12');
 
   useEffect(() => { 
     setIsClient(true);
@@ -151,10 +146,6 @@ export default function StajoveImperium() {
           setUserRole('owner');
           await fetchMyHorses(null, authUser.id);
         }
-        
-        if (prof?.role === 'superadmin') {
-          await fetchClubs();
-        }
       }
     } finally { 
       setLoading(false); 
@@ -187,20 +178,6 @@ export default function StajoveImperium() {
     if (!clubId) return setTeamMembers([]);
     const { data } = await supabase.from('club_members').select('*, profiles(full_name, email)').eq('club_id', clubId);
     setTeamMembers(data || []);
-  }
-
-  async function fetchClubs() {
-    const { data: clubsData } = await supabase.from('clubs').select('*').order('created_at', { ascending: false });
-    const { data: ownersData } = await supabase.from('club_members').select('club_id, profiles(email)').eq('role', 'owner');
-    if (clubsData && ownersData) {
-      const merged = clubsData.map(c => {
-        const owner = ownersData.find(o => o.club_id === c.id);
-        return { ...c, owner_email: owner?.profiles?.email || 'Neznámý' };
-      });
-      setClubs(merged);
-    } else {
-      setClubs(clubsData || []);
-    }
   }
 
   async function fetchMyHorses(clubId, userId) {
@@ -336,39 +313,6 @@ export default function StajoveImperium() {
     alert(`Licence prodloužena do ${startDate.toLocaleDateString('cs-CZ')}.`); 
     setLicenseKeyInput(''); 
     window.location.reload();
-  };
-
-  const handleGenerateLicenseKey = async (e) => {
-    e.preventDefault();
-    const keyCode = `LIC-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-    const duration = parseInt(adminGenDuration) || 12;
-    const { error } = await supabase.from('license_keys').insert([{ key_code: keyCode, duration_months: duration, is_used: false }]);
-    if (error) return alert('Chyba DB: ' + error.message);
-    try {
-      await fetch('/api/send-email', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ subject: 'Licenční klíč', text: `KLÍČ: ${keyCode}`, emails: [adminGenEmail] }) 
-      });
-      alert(`Klíč ${keyCode} odeslán.`); 
-      setAdminGenEmail('');
-    } catch (err) { 
-      alert(`Klíč: ${keyCode}, ale e-mail selhal.`); 
-    }
-  };
-
-  const handleUpdateClubLicense = async (clubId, clubName) => {
-    const newDate = editingClubDates[clubId]; 
-    if (!newDate) return alert('Zadejte datum.');
-    if (confirm(`Změnit licenci ${clubName} na ${new Date(newDate).toLocaleDateString()}?`)) {
-      await supabase.from('clubs').update({ license_valid_until: newDate }).eq('id', clubId); 
-      alert('Aktualizováno!'); 
-      fetchClubs(); 
-    }
-  };
-
-  const handleClubDateChange = (clubId, dateValue) => {
-    setEditingClubDates(prev => ({ ...prev, [clubId]: dateValue }));
   };
 
   const getHorseColor = (horseId) => HORSE_COLORS[myHorses.findIndex(h => h.id === horseId) % HORSE_COLORS.length] || '#333';
@@ -668,10 +612,10 @@ export default function StajoveImperium() {
           <div style={{ display: 'flex', gap: '10px' }}>
             {profile?.role === 'superadmin' && (
               <button 
-                onClick={() => setAdminView(!adminView)} 
-                style={{ ...styles.btnNavOutline, background: adminView ? '#fff' : 'transparent', color: adminView ? '#333' : '#ffb300' }}
+                onClick={() => window.location.href = '/superadmin'} 
+                style={{ ...styles.btnNavOutline, background: 'transparent', color: '#ffb300' }}
               >
-                {adminView ? '🐴 Zpět do stáje' : '🏢 Náhled Superadmin'}
+                🏢 Velín (Superadmin)
               </button>
             )}
           </div>
@@ -723,68 +667,6 @@ export default function StajoveImperium() {
           >
             {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se.'}
           </button>
-        </div>
-      ) : adminView ? (
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-          <div style={{ background: '#e3f2fd', padding: '25px', borderRadius: '12px', border: '2px solid #0288d1', marginBottom: '30px' }}>
-             <h2 style={{ color: '#0288d1', margin: '0 0 15px 0' }}>🔑 Generátor licenčních klíčů</h2>
-             <form onSubmit={handleGenerateLicenseKey} style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-               <div style={{ flex: 2, minWidth: '200px' }}>
-                 <label style={styles.formLabel}>E-mail (kam poslat kód)</label>
-                 <input type="email" value={adminGenEmail} onChange={e => setAdminGenEmail(e.target.value)} style={styles.input} required />
-               </div>
-               <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={styles.formLabel}>Platnost</label>
-                 <select value={adminGenDuration} onChange={e => setAdminGenDuration(e.target.value)} style={styles.input}>
-                   <option value="1">1 měsíc</option>
-                   <option value="6">6 měsíců</option>
-                   <option value="12">12 měsíců (1 rok)</option>
-                 </select>
-               </div>
-               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                 <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', marginBottom: '8px', padding: '12px 25px' }}>
-                   Vygenerovat & Odeslat
-                 </button>
-               </div>
-             </form>
-          </div>
-          <div style={styles.card}>
-            <h3 style={{ color: '#e65100' }}>🏢 Správa Stájí</h3>
-            <div style={{ overflowX: 'auto', marginTop: '20px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
-                <thead>
-                  <tr style={{ background: '#f9f9f9' }}>
-                    <th style={{ padding: '12px' }}>Název klubu</th>
-                    <th style={{ padding: '12px' }}>Majitel</th>
-                    <th style={{ padding: '12px' }}>Stav</th>
-                    <th style={{ padding: '12px' }}>Nová Licence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clubs.map(c => {
-                    const isTrial = c.trial_ends_at && new Date(c.trial_ends_at) > new Date() && (!c.license_valid_until || new Date(c.license_valid_until) < new Date()); 
-                    const isPaid = c.license_valid_until && new Date(c.license_valid_until) > new Date(); 
-                    const currentDateVal = editingClubDates[c.id] !== undefined ? editingClubDates[c.id] : (c.license_valid_until ? c.license_valid_until.split('T')[0] : '');
-                    
-                    return (
-                    <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '12px', fontWeight: 'bold' }}>{c.name}</td>
-                      <td style={{ padding: '12px', color: '#0288d1' }}>{c.owner_email}</td>
-                      <td style={{ padding: '12px', fontSize: '0.85rem' }}>
-                        {isPaid ? <span style={{ color: 'green' }}>Placená</span> : isTrial ? <span style={{ color: 'orange' }}>Trial</span> : <span style={{ color: 'red' }}>Vypršela</span>}
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        <div style={{ display: 'flex', gap: '5px' }}>
-                          <input type="date" value={currentDateVal} onChange={(e) => handleClubDateChange(c.id, e.target.value)} style={{ ...styles.inputSmall, width: '150px' }} />
-                          <button onClick={() => handleUpdateClubLicense(c.id, c.name)} style={{ background: '#4caf50', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Uložit</button>
-                        </div>
-                      </td>
-                    </tr>
-                  )})}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       ) : (
         <div className="main-layout" style={styles.mainGrid}>
