@@ -17,9 +17,13 @@ export default function SuperadminPortal() {
   const [adminGenEmail, setAdminGenEmail] = useState('');
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
-  // NOVÉ STAVY PRO INDIVIDUÁLNÍ NASTAVENÍ (MODAL)
+  // GLOBÁLNÍ NASTAVENÍ
+  const [globalPrice, setGlobalPrice] = useState(990);
+
+  // INDIVIDUÁLNÍ NASTAVENÍ (MODAL)
   const [pricingModalClub, setPricingModalClub] = useState(null);
   const [customPrice, setCustomPrice] = useState('');
+  const [lockedPrice, setLockedPrice] = useState('');
   const [maxHorses, setMaxHorses] = useState('');
 
   useEffect(() => { 
@@ -34,9 +38,10 @@ export default function SuperadminPortal() {
         if (prof?.role === 'superadmin') {
           setUser(authUser);
           setIsAuthorized(true);
+          await fetchGlobalSettings();
           await fetchClubs();
         } else {
-          window.location.href = '/kone'; // Vykopne běžného smrtelníka
+          window.location.href = '/kone'; 
         }
       } else {
         window.location.href = '/kone';
@@ -45,6 +50,27 @@ export default function SuperadminPortal() {
       setLoading(false); 
     }
   }
+
+  async function fetchGlobalSettings() {
+    const { data } = await supabase.from('system_settings').select('global_monthly_price').eq('id', 1).single();
+    if (data) {
+      setGlobalPrice(data.global_monthly_price);
+    }
+  }
+
+  const saveGlobalPrice = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.from('system_settings').upsert({ 
+      id: 1, 
+      global_monthly_price: parseInt(globalPrice) 
+    });
+    if (error) {
+      alert('Chyba při ukládání globální ceny: ' + error.message);
+    } else {
+      alert(`Globální cena byla úspěšně změněna na ${globalPrice} Kč! Všichni noví klienti pojedou za tuto cenu.`);
+      fetchClubs(); // Obnovíme tabulku, ať se to propíše
+    }
+  };
 
   async function fetchClubs() {
     const { data: clubsData } = await supabase.from('clubs').select('*').order('created_at', { ascending: false });
@@ -98,6 +124,7 @@ export default function SuperadminPortal() {
   const handleCustomPricing = (club) => {
     setPricingModalClub(club);
     setCustomPrice(club.custom_price || '');
+    setLockedPrice(club.locked_price || '');
     setMaxHorses(club.max_horses || 50);
   };
 
@@ -105,16 +132,23 @@ export default function SuperadminPortal() {
     e.preventDefault();
     const { error } = await supabase.from('clubs').update({
       custom_price: customPrice ? parseInt(customPrice) : null,
+      locked_price: lockedPrice ? parseInt(lockedPrice) : null,
       max_horses: parseInt(maxHorses) || 50
     }).eq('id', pricingModalClub.id);
 
     if (error) {
       alert('Chyba při ukládání: ' + error.message);
     } else {
-      alert('Individuální nastavení úspěšně uloženo!');
+      alert('Individuální nastavení stáje bylo úspěšně uloženo!');
       setPricingModalClub(null);
       fetchClubs();
     }
+  };
+
+  const calculateEffectivePrice = (club) => {
+    if (club.custom_price) return { price: club.custom_price, type: 'Individuální', color: '#e65100' };
+    if (club.locked_price) return { price: club.locked_price, type: 'Zafixovaná', color: '#2e7d32' };
+    return { price: globalPrice, type: 'Globální (Dle ceníku)', color: '#0288d1' };
   };
 
   if (loading) return <div style={styles.loader}>Ověřuji oprávnění velitelství...</div>;
@@ -131,9 +165,32 @@ export default function SuperadminPortal() {
 
       <div style={{ maxWidth: '1200px', margin: '40px auto', padding: '0 20px' }}>
         
-        {/* SEKCE GENERÁTORU */}
-        <div style={{ background: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '30px', borderTop: '5px solid #0288d1' }}>
-          <h2 style={{ color: '#0288d1', margin: '0 0 20px 0' }}>🔑 Vystavit novou licenci</h2>
+        {/* GLOBÁLNÍ NASTAVENÍ CENY */}
+        <div style={{ background: '#e3f2fd', padding: '30px', borderRadius: '12px', border: '2px solid #0288d1', marginBottom: '30px', display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ color: '#0288d1', margin: '0 0 10px 0' }}>🌍 Základní cena systému</h2>
+            <p style={{ margin: 0, color: '#555', fontSize: '0.9rem', maxWidth: '600px' }}>
+              Změna této ceny ovlivní všechny <strong>nové zákazníky</strong> a ty, kterým licence propadla o více než 12 hodin. Stávající klienti, kteří poctivě prodlužují, si zachovávají svou zafixovanou cenu.
+            </p>
+          </div>
+          <form onSubmit={saveGlobalPrice} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input 
+              type="number" 
+              value={globalPrice} 
+              onChange={e => setGlobalPrice(e.target.value)} 
+              style={{ ...styles.input, width: '150px', margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#0288d1' }} 
+              required 
+            />
+            <span style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>Kč / Měsíc</span>
+            <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', padding: '12px 25px', margin: 0 }}>
+              Uložit globální cenu
+            </button>
+          </form>
+        </div>
+
+        {/* SEKCE GENERÁTORU KLÍČŮ */}
+        <div style={{ background: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', marginBottom: '30px', borderTop: '5px solid #2e7d32' }}>
+          <h2 style={{ color: '#2e7d32', margin: '0 0 20px 0' }}>🔑 Vystavit novou licenci</h2>
           <form onSubmit={handleGenerateLicenseKey} style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: 2, minWidth: '250px' }}>
               <label style={styles.formLabel}>E-mail zákazníka</label>
@@ -147,7 +204,7 @@ export default function SuperadminPortal() {
                 <option value="12">12 měsíců (1 rok)</option>
               </select>
             </div>
-            <button type="submit" style={{ ...styles.btnPrimary, background: '#0288d1', height: '42px', padding: '0 25px' }}>
+            <button type="submit" style={{ ...styles.btnPrimary, background: '#2e7d32', height: '42px', padding: '0 25px' }}>
               Vygenerovat & Odeslat
             </button>
           </form>
@@ -157,13 +214,13 @@ export default function SuperadminPortal() {
         <div style={{ background: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
           <h2 style={{ color: '#e65100', margin: '0 0 20px 0' }}>🏢 Správa klientů a nastavení pod kapotou</h2>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '900px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
               <thead>
                 <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
                   <th style={{ padding: '15px' }}>Stáj / Klub</th>
                   <th style={{ padding: '15px' }}>Zodpovědná osoba</th>
                   <th style={{ padding: '15px' }}>Stav licence</th>
-                  <th style={{ padding: '15px' }}>Konec platnosti</th>
+                  <th style={{ padding: '15px' }}>Platná Cena</th>
                   <th style={{ padding: '15px' }}>SaaS Nastavení</th>
                 </tr>
               </thead>
@@ -174,23 +231,25 @@ export default function SuperadminPortal() {
                   const licenseEnd = c.license_valid_until ? new Date(c.license_valid_until) : null;
                   
                   let status = <span style={{ color: 'red', fontWeight: 'bold' }}>Vypršela</span>;
-                  if (licenseEnd && licenseEnd > now) status = <span style={{ color: 'green', fontWeight: 'bold' }}>Placená</span>;
-                  else if (trialEnd && trialEnd > now) status = <span style={{ color: 'orange', fontWeight: 'bold' }}>Trial</span>;
+                  if (licenseEnd && licenseEnd > now) status = <span style={{ color: 'green', fontWeight: 'bold' }}>Placená do {licenseEnd.toLocaleDateString('cs-CZ')}</span>;
+                  else if (trialEnd && trialEnd > now) status = <span style={{ color: 'orange', fontWeight: 'bold' }}>Trial do {trialEnd.toLocaleDateString('cs-CZ')}</span>;
+
+                  const pricingInfo = calculateEffectivePrice(c);
 
                   return (
                     <tr key={c.id} style={{ borderBottom: '1px solid #eee' }}>
                       <td style={{ padding: '15px', fontWeight: 'bold', color: '#333' }}>
                         {c.name}
-                        {c.custom_price && <div style={{ fontSize: '0.8rem', color: '#e65100', marginTop: '4px' }}>Cena: {c.custom_price} Kč</div>}
-                        <div style={{ fontSize: '0.8rem', color: '#666' }}>Limit koní: {c.max_horses || 50}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px' }}>Limit: {c.max_horses || 50} koní</div>
                       </td>
                       <td style={{ padding: '15px', color: '#555' }}>
                         {c.owner_name}<br/>
                         <span style={{ fontSize: '0.8rem', color: '#0288d1' }}>{c.owner_email}</span>
                       </td>
-                      <td style={{ padding: '15px' }}>{status}</td>
-                      <td style={{ padding: '15px', fontSize: '0.9rem' }}>
-                        {c.license_valid_until ? new Date(c.license_valid_until).toLocaleDateString('cs-CZ') : 'Nikdy'}
+                      <td style={{ padding: '15px', fontSize: '0.9rem' }}>{status}</td>
+                      <td style={{ padding: '15px' }}>
+                        <strong style={{ fontSize: '1.1rem', color: pricingInfo.color }}>{pricingInfo.price} Kč</strong><br/>
+                        <span style={{ fontSize: '0.75rem', color: '#888' }}>{pricingInfo.type}</span>
                       </td>
                       <td style={{ padding: '15px' }}>
                         <button 
@@ -199,7 +258,7 @@ export default function SuperadminPortal() {
                           onMouseOver={e => e.target.style.background = '#fff3e0'}
                           onMouseOut={e => e.target.style.background = '#fff'}
                         >
-                          ⚙️ Ceny & Moduly
+                          ⚙️ Upravit Ceny / Limity
                         </button>
                       </td>
                     </tr>
@@ -222,19 +281,38 @@ export default function SuperadminPortal() {
             </div>
             
             <form onSubmit={saveCustomPricing} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              
+              <div style={{ background: '#f5f5f5', padding: '10px', borderRadius: '6px', borderLeft: '4px solid #0288d1' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: '#333' }}>
+                  Aktuální globální cena v systému je: <strong>{globalPrice} Kč</strong>
+                </p>
+              </div>
+
               <div>
-                <label style={styles.formLabel}>Individuální cena licence (Kč / Měsíc)</label>
+                <label style={styles.formLabel}>1. Individuální cena (Nejvyšší priorita)</label>
                 <input 
                   type="number" 
-                  placeholder="Např. 990 (Nechte prázdné pro standard)" 
+                  placeholder={`Např. 500 (Nechte prázdné pro ignorování)`} 
                   value={customPrice} 
                   onChange={e => setCustomPrice(e.target.value)} 
                   style={styles.input} 
                 />
-                <small style={{ color: '#888' }}>Nechte prázdné, pokud stáj platí standardní ceníkovou cenu.</small>
+                <small style={{ color: '#888' }}>Tato cena přebije všechno. Vhodné pro speciální dohody.</small>
               </div>
 
               <div>
+                <label style={styles.formLabel}>2. Zafixovaná cena (Ochrana stávajících klientů)</label>
+                <input 
+                  type="number" 
+                  placeholder="Např. 790 (Cena před zdražením)" 
+                  value={lockedPrice} 
+                  onChange={e => setLockedPrice(e.target.value)} 
+                  style={styles.input} 
+                />
+                <small style={{ color: '#888' }}>Tuto cenu klient platí, pokud nepřeruší předplatné. Pokud má pauzu > 12h, při další platbě systém toto pole smaže a napálí mu Globální cenu.</small>
+              </div>
+
+              <div style={{ marginTop: '10px', borderTop: '1px dashed #ccc', paddingTop: '15px' }}>
                 <label style={styles.formLabel}>Maximální povolený počet koní</label>
                 <input 
                   type="number" 
@@ -245,7 +323,7 @@ export default function SuperadminPortal() {
                   style={styles.input} 
                   required
                 />
-                <small style={{ color: '#888' }}>Kolik koní si majitel může do systému celkem přidat.</small>
+                <small style={{ color: '#888' }}>Limit koní pro tuto konkrétní stáj.</small>
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
