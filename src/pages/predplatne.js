@@ -19,7 +19,7 @@ export default function PredplatnePortal() {
   const [effectivePrices, setEffectivePrices] = useState({ annual: 0, monthly: 0, type: '' });
   
   // Výběr uživatele
-  const [selectedPlan, setSelectedPlan] = useState('annual'); // 'annual' nebo 'monthly'
+  const [selectedPlan, setSelectedPlan] = useState('annual'); 
   const [isAutoRenew, setIsAutoRenew] = useState(true);
   
   // Fakturační údaje (zákazník)
@@ -30,8 +30,8 @@ export default function PredplatnePortal() {
   const [billingCity, setBillingCity] = useState('');
   const [billingZip, setBillingZip] = useState('');
 
-  // Stav objednávky
-  const [orderState, setOrderState] = useState('selection'); // 'selection' -> 'checkout' -> 'success'
+  // Stav objednávky: selection -> checkout -> success (QR) -> checking
+  const [orderState, setOrderState] = useState('selection'); 
   const [isProcessing, setIsProcessing] = useState(false);
   const [variableSymbol, setVariableSymbol] = useState('');
 
@@ -41,7 +41,7 @@ export default function PredplatnePortal() {
     ico: '28172825',
     street: 'Hartigova 2660/141',
     city: '130 00 Praha 3',
-    account: '2712037003/5500' // Tvé zadané číslo účtu
+    account: '2712037003/5500' 
   };
 
   const calculateMonthlyPrice = (annualPrice) => {
@@ -61,7 +61,6 @@ export default function PredplatnePortal() {
         const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
         setProfile(prof);
         
-        // Načtení fakturačních údajů z profilu (pokud existují)
         if (prof?.billing_info) {
           setBillingName(prof.full_name || '');
           setBillingStreet(prof.billing_info); 
@@ -79,12 +78,10 @@ export default function PredplatnePortal() {
             return;
           }
 
-          // Načteme ROČNÍ globální cenu z nastavení superadmina
           const { data: sysData } = await supabase.from('system_settings').select('global_annual_price').eq('id', 1).single();
           const gPrice = sysData?.global_annual_price || 1200;
           setGlobalAnnualPrice(gPrice);
 
-          // Vypočteme platnou cenu (Hierarchie: Custom > Locked > Global)
           if (clubData.custom_annual_price) {
             setEffectivePrices({ annual: clubData.custom_annual_price, monthly: calculateMonthlyPrice(clubData.custom_annual_price), type: 'Individuální dohodnutá cena' });
           } else if (clubData.locked_annual_price) {
@@ -114,53 +111,46 @@ export default function PredplatnePortal() {
 
   const handleConfirmOrder = async () => {
     setIsProcessing(true);
-    
     const amountToPay = selectedPlan === 'annual' ? effectivePrices.annual : effectivePrices.monthly;
-    const vs = Math.floor(10000000 + Math.random() * 90000000).toString(); // Generování unikátního VS
+    const vs = Math.floor(10000000 + Math.random() * 90000000).toString(); 
     setVariableSymbol(vs);
 
     const orderData = {
       userEmail: profile.email,
-      adminEmail: 'l.Vosika@arastea.cz', // Kopie pro tebe
+      adminEmail: 'l.Vosika@arastea.cz', 
       clubName: myClub.name,
       amount: amountToPay,
       period: selectedPlan === 'annual' ? 'Roční' : 'Měsíční',
       vs: vs,
       billing: {
-        name: billingName,
-        ico: billingIco,
-        dic: billingDic,
-        street: billingStreet,
-        city: billingCity,
-        zip: billingZip
+        name: billingName, ico: billingIco, dic: billingDic, street: billingStreet, city: billingCity, zip: billingZip
       },
       supplier: supplier
     };
 
     try {
-      // 1. Aktualizujeme profil s nejnovějšími fakturačními údaji
       const fullBillingText = `${billingStreet}, ${billingCity} ${billingZip}`;
       await supabase.from('profiles').update({ 
         full_name: billingName,
         billing_info: `IČO: ${billingIco}, DIČ: ${billingDic}, Adresa: ${fullBillingText}`
       }).eq('id', user.id);
 
-      // 2. TRIGGER PRO ODESLÁNÍ FAKTURY (API ROUTA)
-      const response = await fetch('/api/send-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData)
-      });
+      // ZDE BUDE VOLÁNÍ API PRO ODESLÁNÍ FAKTURY
+      // await fetch('/api/send-invoice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(orderData) });
 
-      if (!response.ok) throw new Error('Nepodařilo se odeslat e-mail s fakturou.');
-
-      // 3. Hotovo - zobrazíme QR kód
       setOrderState('success');
     } catch (error) {
       alert('Chyba: ' + error.message);
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  // NOVÁ FUNKCE: SPOUŠTÍ KONTROLU BANKY
+  const handlePaymentDone = () => {
+    setOrderState('checking');
+    // Zde by v budoucnu probíhalo reálné dotazování na API banky
+    // Prozatím simulujeme kontrolu
   };
 
   const getQRLink = (acc, amount, vs, msg) => {
@@ -186,16 +176,10 @@ export default function PredplatnePortal() {
         {orderState === 'selection' && (
           <form onSubmit={handleProceedToCheckout}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '30px' }}>
-              
               <div>
                 <h3 style={{ color: '#3e2723', borderBottom: '2px solid #d7ccc8', paddingBottom: '10px' }}>1. Vyberte si období</h3>
                 <p style={{ fontSize: '0.85rem', color: '#666' }}>Platí pro vás: <strong>{effectivePrices.type}</strong></p>
-
-                {/* ROČNÍ TARIF */}
-                <div 
-                  onClick={() => setSelectedPlan('annual')}
-                  style={{ ...styles.priceCard, border: selectedPlan === 'annual' ? '3px solid #4caf50' : '1px solid #ddd', background: selectedPlan === 'annual' ? '#e8f5e9' : '#fff' }}
-                >
+                <div onClick={() => setSelectedPlan('annual')} style={{ ...styles.priceCard, border: selectedPlan === 'annual' ? '3px solid #4caf50' : '1px solid #ddd', background: selectedPlan === 'annual' ? '#e8f5e9' : '#fff' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: '#2e7d32' }}>Roční předplatné</h4>
@@ -207,12 +191,7 @@ export default function PredplatnePortal() {
                     </div>
                   </div>
                 </div>
-
-                {/* MĚSÍČNÍ TARIF */}
-                <div 
-                  onClick={() => setSelectedPlan('monthly')}
-                  style={{ ...styles.priceCard, border: selectedPlan === 'monthly' ? '3px solid #0288d1' : '1px solid #ddd', background: selectedPlan === 'monthly' ? '#e3f2fd' : '#fff' }}
-                >
+                <div onClick={() => setSelectedPlan('monthly')} style={{ ...styles.priceCard, border: selectedPlan === 'monthly' ? '3px solid #0288d1' : '1px solid #ddd', background: selectedPlan === 'monthly' ? '#e3f2fd' : '#fff' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <h4 style={{ margin: '0 0 5px 0', color: '#01579b' }}>Měsíční platba</h4>
@@ -225,45 +204,27 @@ export default function PredplatnePortal() {
                   </div>
                 </div>
               </div>
-
-              {/* FAKTURAČNÍ ÚDAJE */}
               <div style={{ background: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
                 <h3 style={{ color: '#3e2723', marginTop: 0 }}>2. Fakturační údaje</h3>
-                
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Firma / Jméno *</label>
-                  <input type="text" value={billingName} onChange={e=>setBillingName(e.target.value)} style={styles.input} required />
-                </div>
-                
+                <div style={styles.formGroup}><label style={styles.label}>Firma / Jméno *</label><input type="text" value={billingName} onChange={e=>setBillingName(e.target.value)} style={styles.input} required /></div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}><label style={styles.label}>IČO</label><input type="text" value={billingIco} onChange={e=>setBillingIco(e.target.value)} style={styles.input} /></div>
                   <div style={{ flex: 1 }}><label style={styles.label}>DIČ</label><input type="text" value={billingDic} onChange={e=>setBillingDic(e.target.value)} style={styles.input} /></div>
                 </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Ulice a č.p. *</label>
-                  <input type="text" value={billingStreet} onChange={e=>setBillingStreet(e.target.value)} style={styles.input} required />
-                </div>
-
+                <div style={styles.formGroup}><label style={styles.label}>Ulice a č.p. *</label><input type="text" value={billingStreet} onChange={e=>setBillingStreet(e.target.value)} style={styles.input} required /></div>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 2 }}><label style={styles.label}>Město *</label><input type="text" value={billingCity} onChange={e=>setBillingCity(e.target.value)} style={styles.input} required /></div>
                   <div style={{ flex: 1 }}><label style={styles.label}>PSČ</label><input type="text" value={billingZip} onChange={e=>setBillingZip(e.target.value)} style={styles.input} /></div>
                 </div>
-
-                <button type="submit" style={{ ...styles.btnPrimary, background: '#4caf50', marginTop: '20px' }}>
-                  Pokračovat k platbě ➔
-                </button>
+                <button type="submit" style={{ ...styles.btnPrimary, background: '#4caf50', marginTop: '20px' }}>Pokračovat k platbě ➔</button>
               </div>
-
             </div>
           </form>
         )}
 
-        {/* REKAPITULACE */}
         {orderState === 'checkout' && (
           <div style={{ background: '#fff', padding: '40px', borderRadius: '15px', boxShadow: '0 15px 35px rgba(0,0,0,0.1)', maxWidth: '600px', margin: '0 auto' }}>
             <h2 style={{ textAlign: 'center', color: '#3e2723', marginBottom: '25px' }}>Potvrzení objednávky</h2>
-            
             <div style={{ background: '#fafafa', padding: '20px', borderRadius: '10px', marginBottom: '30px', border: '1px solid #eee' }}>
               <div style={styles.sumRow}><span>Produkt:</span> <strong>Licence ({selectedPlan === 'annual' ? 'Roční' : 'Měsíční'})</strong></div>
               <div style={styles.sumRow}><span>Pro stáj:</span> <strong>{myClub?.name}</strong></div>
@@ -272,7 +233,6 @@ export default function PredplatnePortal() {
                 <span>K úhradě:</span> <strong style={{ color: '#2e7d32' }}>{selectedPlan === 'annual' ? effectivePrices.annual : effectivePrices.monthly} Kč</strong>
               </div>
             </div>
-
             <div style={{ display: 'flex', gap: '15px' }}>
               <button onClick={() => setOrderState('selection')} style={{ ...styles.btnOutline, flex: 1 }}>Změnit údaje</button>
               <button onClick={handleConfirmOrder} disabled={isProcessing} style={{ ...styles.btnPrimary, background: '#e65100', flex: 2 }}>
@@ -282,17 +242,16 @@ export default function PredplatnePortal() {
           </div>
         )}
 
-        {/* ÚSPĚCH A QR KÓD */}
         {orderState === 'success' && (
           <div style={{ background: '#fff', padding: '40px', borderRadius: '15px', boxShadow: '0 15px 35px rgba(0,0,0,0.1)', textAlign: 'center' }}>
             <div style={{ width: '70px', height: '70px', background: '#4caf50', borderRadius: '50%', color: '#fff', fontSize: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>✓</div>
             <h2 style={{ color: '#2e7d32', margin: '0 0 10px 0' }}>Objednávka byla odeslána!</h2>
             <p style={{ color: '#666', marginBottom: '30px' }}>
-              Faktura byla odeslána na e-mail <strong>{profile?.email}</strong> i na centrálu Arastea.<br/>
-              Licence bude aktivována okamžitě po spárování platby.
+              Faktura byla odeslána na e-mail <strong>{profile?.email}</strong>.<br/>
+              Licence bude aktivována po přijetí platby.
             </p>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '30px', justifyContent: 'center', background: '#f5f5f5', padding: '30px', borderRadius: '15px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '30px', justifyContent: 'center', background: '#f5f5f5', padding: '30px', borderRadius: '15px', marginBottom: '30px' }}>
               <div style={{ textAlign: 'left', minWidth: '250px' }}>
                 <h4 style={{ margin: '0 0 15px 0', color: '#5d4037' }}>Podklady pro platbu</h4>
                 <p><strong>Částka:</strong> {selectedPlan === 'annual' ? effectivePrices.annual : effectivePrices.monthly} Kč</p>
@@ -300,19 +259,39 @@ export default function PredplatnePortal() {
                 <p><strong>Var. symbol:</strong> {variableSymbol}</p>
                 <p><strong>Příjemce:</strong> {supplier.company}</p>
               </div>
-
               <div style={{ background: '#fff', padding: '15px', borderRadius: '10px', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
                 <img 
                   src={getQRLink(supplier.account, selectedPlan === 'annual' ? effectivePrices.annual : effectivePrices.monthly, variableSymbol, `Licence ${myClub?.name}`)} 
                   style={{ width: '200px', height: '200px' }} 
                   alt="QR Platba"
                 />
-                <p style={{ fontSize: '0.75rem', color: '#888', marginTop: '10px' }}>Naskenujte ve své bankovní aplikaci</p>
+                <p style={{ fontSize: '0.75rem', color: '#888', marginTop: '10px' }}>Naskenujte v bankovní aplikaci</p>
               </div>
             </div>
 
-            <button onClick={() => window.location.href = '/kone'} style={{ ...styles.btnPrimary, background: '#5d4037', width: 'auto', padding: '15px 40px', marginTop: '30px' }}>
-              Zpět do aplikace
+            <button onClick={handlePaymentDone} style={{ ...styles.btnPrimary, background: '#4caf50', padding: '15px 40px', width: 'auto' }}>
+              MÁM ZAPLACENO, HOTOVO ➔
+            </button>
+          </div>
+        )}
+
+        {/* NOVÝ STAV: KONTROLA PLATBY V BANCE */}
+        {orderState === 'checking' && (
+          <div style={{ background: '#fff', padding: '50px 40px', borderRadius: '15px', boxShadow: '0 15px 35px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+            <div style={styles.spinnerLarge}></div>
+            <h2 style={{ color: '#3e2723', marginTop: '30px' }}>Probíhá kontrola platby</h2>
+            <div style={{ maxWidth: '600px', margin: '20px auto', background: '#fff3e0', padding: '20px', borderRadius: '10px', borderLeft: '5px solid #ffb300' }}>
+              <p style={{ margin: 0, color: '#5d4037', fontSize: '1.1rem', lineHeight: '1.5' }}>
+                <strong>Důležité info:</strong> Rychlost ověření závisí na vaší bance. <br/>
+                U <strong>okamžitých plateb</strong> dojde k aktivaci v řádu sekund. <br/>
+                U běžných převodů může aktivace trvat do druhého pracovního dne.
+              </p>
+            </div>
+            <p style={{ color: '#888', marginTop: '20px' }}>
+              Tuto stránku můžete zavřít. Jakmile platbu uvidíme, licenci vám automaticky prodloužíme a pošleme potvrzení e-mailem.
+            </p>
+            <button onClick={() => window.location.href = '/kone'} style={{ ...styles.btnOutline, width: 'auto', padding: '12px 30px', marginTop: '30px' }}>
+              Zpět do mé stáje
             </button>
           </div>
         )}
@@ -333,5 +312,16 @@ const styles = {
   input: { padding: '12px', borderRadius: '8px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box', fontSize: '1rem' },
   btnPrimary: { color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', padding: '15px', width: '100%', fontSize: '1rem' },
   btnOutline: { background: 'transparent', border: '1px solid #ccc', color: '#333', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', padding: '15px' },
-  sumRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }
+  sumRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '10px' },
+  spinnerLarge: {
+    width: '60px', height: '60px', border: '6px solid #f3f3f3', borderTop: '6px solid #4caf50', borderRadius: '50%',
+    margin: '0 auto', animation: 'spin 1s linear infinite'
+  }
 };
+
+// CSS Animace pro spinner (vložit do globálního CSS nebo přidat style tag)
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement("style");
+  styleSheet.innerText = `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`;
+  document.head.appendChild(styleSheet);
+}
