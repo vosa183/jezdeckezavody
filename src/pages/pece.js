@@ -167,7 +167,8 @@ export default function PortalPece() {
     await supabase.from('profiles').update({ 
       full_name: profile.full_name, 
       bank_account: profile.bank_account,
-      bank_api_token: profile.bank_api_token
+      bank_api_token: profile.bank_api_token,
+      billing_info: profile.billing_info
     }).eq('id', user.id);
     
     setIsProfileEditing(false);
@@ -330,6 +331,9 @@ export default function PortalPece() {
                 <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#888' }}>
                   API Token banky: {profile?.bank_api_token ? 'Zadáno (Skryto)' : 'Nenastaveno'}
                 </p>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#888' }}>
+                  Fakturační hlavička (IČO): {profile?.billing_info ? 'Vyplněno' : 'Nenastaveno'}
+                </p>
               </div>
               <button 
                 onClick={() => setIsProfileEditing(!isProfileEditing)} 
@@ -365,7 +369,18 @@ export default function PortalPece() {
                     />
                   </div>
                 </div>
-                <div>
+
+                <div style={{ marginTop: '10px' }}>
+                  <label style={styles.label}>Fakturační hlavička (Adresa, IČO, DIČ pro faktury)</label>
+                  <textarea 
+                    placeholder="Např. Jan Novák, Kovářská 1, 110 00 Praha, IČO: 12345678" 
+                    value={profile?.billing_info || ''} 
+                    onChange={e => setProfile({...profile, billing_info: e.target.value})} 
+                    style={{ ...styles.inputSmall, height: '60px' }} 
+                  />
+                </div>
+
+                <div style={{ marginTop: '10px' }}>
                   <label style={styles.label}>API Token banky (Fio, PSD2 atd. pro kontrolu plateb)</label>
                   <input 
                     type="text" 
@@ -375,7 +390,8 @@ export default function PortalPece() {
                     style={styles.inputSmall} 
                   />
                 </div>
-                <button type="submit" style={{ ...styles.btnPrimary, alignSelf: 'flex-start', padding: '8px 25px' }}>
+                
+                <button type="submit" style={{ ...styles.btnPrimary, alignSelf: 'flex-start', padding: '8px 25px', marginTop: '10px' }}>
                   Uložit nastavení
                 </button>
               </form>
