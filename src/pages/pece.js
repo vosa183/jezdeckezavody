@@ -80,7 +80,7 @@ export default function PortalPece() {
             return;
           }
           
-          // OPRAVA: Odfiltrujeme výchozí testovací stáj z pohledu specialisty
+          // Odfiltrujeme výchozí testovací stáj z pohledu specialisty
           const realMemberships = memberships.filter(m => m.club_id !== '00000000-0000-0000-0000-000000000000');
           setMyMemberships(realMemberships);
           
@@ -163,9 +163,11 @@ export default function PortalPece() {
 
   const updateProfileDetails = async (e) => {
     e.preventDefault();
+    
     await supabase.from('profiles').update({ 
       full_name: profile.full_name, 
-      bank_account: profile.bank_account 
+      bank_account: profile.bank_account,
+      bank_api_token: profile.bank_api_token
     }).eq('id', user.id);
     
     setIsProfileEditing(false);
@@ -192,7 +194,6 @@ export default function PortalPece() {
       }
     }
     
-    // Zápis do deníku
     const { error: diaryErr } = await supabase.from('horse_diary').insert([{ 
       horse_id: activeHorseId, 
       club_id: clubId, 
@@ -204,7 +205,6 @@ export default function PortalPece() {
       attachment_url: attUrl 
     }]);
 
-    // Pokud chce proplatit, vytvoříme požadavek na platbu (pro QR platby)
     if (newLog.requestPayment && newLog.cost > 0) {
       await supabase.from('payments').insert([{
         club_id: clubId,
@@ -232,7 +232,11 @@ export default function PortalPece() {
   };
 
   if (loading) {
-    return <div style={styles.loader}>Připojuji ordinaci...</div>;
+    return (
+      <div style={styles.loader}>
+        Připojuji ordinaci...
+      </div>
+    );
   }
 
   const horsesByClub = myMemberships.map(membership => ({
@@ -286,7 +290,7 @@ export default function PortalPece() {
           <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <input 
               type="email" 
-              placeholder="E-mail" 
+              placeholder="E-mailová adresa" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
               style={styles.input} 
@@ -310,7 +314,7 @@ export default function PortalPece() {
             onClick={() => setIsSignUp(!isSignUp)} 
             style={styles.btnText}
           >
-            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se.'}
+            {isSignUp ? 'Už máte účet? Přihlaste se zde.' : 'Nemáte účet? Zaregistrujte se zde.'}
           </button>
         </div>
       ) : (
@@ -321,37 +325,58 @@ export default function PortalPece() {
               <div>
                 <h3 style={{ margin: 0, color: '#006064' }}>Můj profil specialisty</h3>
                 <p style={{ margin: '5px 0 0 0', fontSize: '0.9rem', color: '#666' }}>
-                  Číslo účtu pro platby: <strong>{profile?.bank_account || 'Nenastaveno'}</strong>
+                  Číslo účtu (IBAN): <strong>{profile?.bank_account || 'Nenastaveno'}</strong>
+                </p>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#888' }}>
+                  API Token banky: {profile?.bank_api_token ? 'Zadáno (Skryto)' : 'Nenastaveno'}
                 </p>
               </div>
               <button 
                 onClick={() => setIsProfileEditing(!isProfileEditing)} 
                 style={styles.btnNavOutline}
               >
-                {isProfileEditing ? 'Zrušit' : 'Upravit IBAN'}
+                {isProfileEditing ? 'Zrušit úpravy' : 'Upravit údaje'}
               </button>
             </div>
             
             {isProfileEditing && (
-              <form onSubmit={updateProfileDetails} style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
-                <input 
-                  type="text" 
-                  placeholder="Vaše jméno" 
-                  value={profile?.full_name || ''} 
-                  onChange={e => setProfile({...profile, full_name: e.target.value})} 
-                  style={styles.inputSmall} 
-                  required 
-                />
-                <input 
-                  type="text" 
-                  placeholder="IBAN / Číslo účtu" 
-                  value={profile?.bank_account || ''} 
-                  onChange={e => setProfile({...profile, bank_account: e.target.value})} 
-                  style={styles.inputSmall} 
-                  required 
-                />
-                <button type="submit" style={{ ...styles.btnPrimary, padding: '5px 20px' }}>
-                  Uložit
+              <form onSubmit={updateProfileDetails} style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px', background: '#f5f5f5', padding: '15px', borderRadius: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                  <div>
+                    <label style={styles.label}>Jméno a příjmení</label>
+                    <input 
+                      type="text" 
+                      placeholder="Vaše jméno" 
+                      value={profile?.full_name || ''} 
+                      onChange={e => setProfile({...profile, full_name: e.target.value})} 
+                      style={styles.inputSmall} 
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label style={styles.label}>IBAN / Číslo účtu</label>
+                    <input 
+                      type="text" 
+                      placeholder="Např. CZ..." 
+                      value={profile?.bank_account || ''} 
+                      onChange={e => setProfile({...profile, bank_account: e.target.value})} 
+                      style={styles.inputSmall} 
+                      required 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label style={styles.label}>API Token banky (Fio, PSD2 atd. pro kontrolu plateb)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Vložte tajný klíč z vaší banky" 
+                    value={profile?.bank_api_token || ''} 
+                    onChange={e => setProfile({...profile, bank_api_token: e.target.value})} 
+                    style={styles.inputSmall} 
+                  />
+                </div>
+                <button type="submit" style={{ ...styles.btnPrimary, alignSelf: 'flex-start', padding: '8px 25px' }}>
+                  Uložit nastavení
                 </button>
               </form>
             )}
@@ -362,7 +387,9 @@ export default function PortalPece() {
           </div>
           
           {horsesByClub.length === 0 ? (
-            <div style={styles.emptyState}>Zatím vás žádná stáj nepřidala.</div> 
+            <div style={styles.emptyState}>
+              Zatím vás žádná stáj nepřidala.
+            </div> 
           ) : (
             <div style={styles.grid}>
               {horsesByClub.map((group, idx) => (
@@ -375,103 +402,121 @@ export default function PortalPece() {
                   </div>
                   
                   <div style={{ padding: '15px' }}>
-                    {group.horses.map(horse => {
-                      const isFormOpen = activeHorseId === horse.id;
-                      return (
-                        <div key={horse.id} style={styles.horseItem}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                            <img 
-                              src={horse.photo_url || 'https://via.placeholder.com/60?text=KŮŇ'} 
-                              style={styles.horseImage} 
-                            />
-                            <div style={{ flex: 1, minWidth: '200px' }}>
-                              <strong style={{ fontSize: '1.1rem', color: '#333' }}>{horse.name}</strong>
-                              <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                                Očkování: {horse.vaccination_date ? new Date(horse.vaccination_date).toLocaleDateString() : '?'}
+                    {group.horses.length === 0 ? (
+                      <p style={{ color: '#888', fontSize: '0.9rem' }}>Tato stáj zatím neeviduje žádné koně.</p>
+                    ) : (
+                      group.horses.map(horse => {
+                        const isFormOpen = activeHorseId === horse.id;
+                        return (
+                          <div key={horse.id} style={styles.horseItem}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+                              <img 
+                                src={horse.photo_url || 'https://via.placeholder.com/60?text=KŮŇ'} 
+                                style={styles.horseImage} 
+                              />
+                              <div style={{ flex: 1, minWidth: '200px' }}>
+                                <strong style={{ fontSize: '1.1rem', color: '#333' }}>{horse.name}</strong>
+                                <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '2px' }}>
+                                  Očkování: {horse.vaccination_date ? new Date(horse.vaccination_date).toLocaleDateString() : '?'} | 
+                                  Kovář: {horse.farrier_date ? new Date(horse.farrier_date).toLocaleDateString() : '?'}
+                                </div>
                               </div>
+                              <button 
+                                onClick={() => openLogForm(horse.id, group.role === 'farrier' ? 'Kovář' : 'Veterinář')} 
+                                style={styles.btnAction}
+                              >
+                                + Zapsat úkon
+                              </button>
                             </div>
-                            <button 
-                              onClick={() => openLogForm(horse.id, group.role === 'farrier' ? 'Kovář' : 'Veterinář')} 
-                              style={styles.btnAction}
-                            >
-                              + Zapsat úkon
-                            </button>
-                          </div>
-                          
-                          {isFormOpen && (
-                            <form onSubmit={(e) => submitLog(e, group.clubId)} style={styles.logForm}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <h4 style={{ margin: 0, color: '#00838f' }}>Nový záznam: {horse.name}</h4>
-                                <button type="button" onClick={() => setActiveHorseId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
-                              </div>
-                              
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                                <div>
-                                  <label style={styles.label}>Datum</label>
-                                  <input 
-                                    type="date" 
-                                    value={newLog.date} 
-                                    onChange={e=>setNewLog({...newLog, date:e.target.value})} 
-                                    style={styles.inputSmall} 
+                            
+                            {isFormOpen && (
+                              <form onSubmit={(e) => submitLog(e, group.clubId)} style={styles.logForm}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                  <h4 style={{ margin: 0, color: '#00838f' }}>Nový záznam: {horse.name}</h4>
+                                  <button type="button" onClick={() => setActiveHorseId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>
+                                    ×
+                                  </button>
+                                </div>
+                                
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                                  <div>
+                                    <label style={styles.label}>Datum</label>
+                                    <input 
+                                      type="date" 
+                                      value={newLog.date} 
+                                      onChange={e=>setNewLog({...newLog, date:e.target.value})} 
+                                      style={styles.inputSmall} 
+                                      required 
+                                    />
+                                  </div>
+                                  <div>
+                                    <label style={styles.label}>Kategorie</label>
+                                    <select 
+                                      value={newLog.type} 
+                                      onChange={e=>setNewLog({...newLog, type:e.target.value})} 
+                                      style={styles.inputSmall}
+                                    >
+                                      <option value="Veterinář">Veterinář</option>
+                                      <option value="Zuby">Zuby</option>
+                                      <option value="Fyzio">Fyzio / Chiro</option>
+                                      <option value="Kovář">Kovář</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                
+                                <div style={{ marginBottom: '10px' }}>
+                                  <label style={styles.label}>Popis</label>
+                                  <textarea 
+                                    placeholder="Co se dělalo..." 
+                                    value={newLog.notes} 
+                                    onChange={e=>setNewLog({...newLog, notes:e.target.value})} 
+                                    style={{ ...styles.inputSmall, height: '70px' }} 
                                     required 
                                   />
                                 </div>
-                                <div>
-                                  <label style={styles.label}>Kategorie</label>
-                                  <select 
-                                    value={newLog.type} 
-                                    onChange={e=>setNewLog({...newLog, type:e.target.value})} 
-                                    style={styles.inputSmall}
-                                  >
-                                    <option value="Veterinář">Veterinář</option>
-                                    <option value="Zuby">Zuby</option>
-                                    <option value="Kovář">Kovář</option>
-                                  </select>
+                                
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+                                  <div>
+                                    <label style={styles.label}>Cena (Kč)</label>
+                                    <input 
+                                      type="number" 
+                                      placeholder="Částka" 
+                                      value={newLog.cost || ''} 
+                                      onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} 
+                                      style={styles.inputSmall} 
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '20px' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      id="payReq" 
+                                      checked={newLog.requestPayment} 
+                                      onChange={e => setNewLog({...newLog, requestPayment: e.target.checked})} 
+                                    />
+                                    <label htmlFor="payReq" style={{ fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>
+                                      Požádat o proplacení
+                                    </label>
+                                  </div>
                                 </div>
-                              </div>
-                              
-                              <div style={{ marginBottom: '10px' }}>
-                                <label style={styles.label}>Popis</label>
-                                <textarea 
-                                  placeholder="Co se dělalo..." 
-                                  value={newLog.notes} 
-                                  onChange={e=>setNewLog({...newLog, notes:e.target.value})} 
-                                  style={{ ...styles.inputSmall, height: '70px' }} 
-                                  required 
-                                />
-                              </div>
-                              
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-                                <div>
-                                  <label style={styles.label}>Cena (Kč)</label>
+                                
+                                <div style={{ marginBottom: '15px' }}>
+                                  <label style={styles.label}>Faktura / Zpráva (PDF/JPG)</label>
                                   <input 
-                                    type="number" 
-                                    placeholder="Částka" 
-                                    value={newLog.cost || ''} 
-                                    onChange={e=>setNewLog({...newLog, cost:parseInt(e.target.value)||0})} 
-                                    style={styles.inputSmall} 
+                                    type="file" 
+                                    onChange={e=>setDocFile(e.target.files[0])} 
+                                    style={{ ...styles.inputSmall, background: '#fff' }} 
                                   />
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '20px' }}>
-                                  <input 
-                                    type="checkbox" 
-                                    id="payReq" 
-                                    checked={newLog.requestPayment} 
-                                    onChange={e => setNewLog({...newLog, requestPayment: e.target.checked})} 
-                                  />
-                                  <label htmlFor="payReq" style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
-                                    Požádat o proplacení
-                                  </label>
-                                </div>
-                              </div>
-                              <button type="submit" style={{ ...styles.btnPrimary, width: '100%' }}>
-                                Odeslat majiteli
-                              </button>
-                            </form>
-                          )}
-                        </div>
-                      );
-                    })}
+                                
+                                <button type="submit" style={{ ...styles.btnPrimary, width: '100%' }}>
+                                  Odeslat majiteli
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               ))}
