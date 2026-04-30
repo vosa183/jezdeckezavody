@@ -66,21 +66,25 @@ export default function PortalPece() {
       if (authUser) {
         const { data: memberships } = await supabase.from('club_members').select('club_id, role, clubs(name)').eq('user_id', authUser.id);
         
-        // --- DOPRAVNÍ POLICISTA (ROZCESTNÍK PRO PÉČI) ---
         if (memberships && memberships.length > 0) {
           const isSpecialist = memberships.some(m => m.role === 'vet' || m.role === 'farrier');
           
-          // Pokud nemá ani jednu roli Kováře (KO) nebo Veterináře (VE), vyhoď ho do /kone
           if (!isSpecialist) {
             window.location.href = '/kone';
             return;
           }
           
-          setMyMemberships(memberships);
-          const clubIds = memberships.map(m => m.club_id);
+          // OPRAVA: Odfiltrujeme výchozí testovací stáj z pohledu specialisty
+          const realMemberships = memberships.filter(m => m.club_id !== '00000000-0000-0000-0000-000000000000');
+          setMyMemberships(realMemberships);
           
-          const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
-          setClientHorses(horses || []);
+          const clubIds = realMemberships.map(m => m.club_id);
+          if (clubIds.length > 0) {
+            const { data: horses } = await supabase.from('horses').select('*').in('club_id', clubIds).order('name', { ascending: true });
+            setClientHorses(horses || []);
+          } else {
+            setClientHorses([]);
+          }
         }
         
         setUser(authUser);
