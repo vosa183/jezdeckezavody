@@ -36,6 +36,7 @@ const createGCalLink = (title, dateString) => {
 const HORSE_COLORS = ['#0288d1', '#388e3c', '#d32f2f', '#f57f17', '#8e24aa', '#5d4037', '#00796b', '#c2185b'];
 
 export default function StajoveImperium() {
+  const [isClient, setIsClient] = useState(false);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [myClub, setMyClub] = useState(null);
@@ -64,7 +65,6 @@ export default function StajoveImperium() {
   const [allPayments, setAllPayments] = useState([]);
   const [docFile, setDocFile] = useState(null);
   
-  // PLNĚ OBNOVENÝ STAV DENÍKU
   const [newLog, setNewLog] = useState({ 
     date: new Date().toISOString().split('T')[0], 
     type: 'Jízdárna', 
@@ -78,11 +78,10 @@ export default function StajoveImperium() {
 
   const [teamMembers, setTeamMembers] = useState([]);
   
-  // NAHRAZENO PRO VYHLEDÁVÁNÍ PROFÍKŮ:
+  // VYHLEDÁVÁNÍ PROFÍKŮ:
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
-  
   const [inviteNewRole, setInviteNewRole] = useState('trainer');
 
   const [adminView, setAdminView] = useState(false);
@@ -93,6 +92,7 @@ export default function StajoveImperium() {
   const [adminGenDuration, setAdminGenDuration] = useState('12');
 
   useEffect(() => { 
+    setIsClient(true);
     checkUserAndToken(); 
   }, []);
 
@@ -121,7 +121,6 @@ export default function StajoveImperium() {
       }
 
       if (authUser) {
-        // ROZCESTNÍK DO PÉČE
         const { data: mData } = await supabase.from('club_members').select('role').eq('user_id', authUser.id).limit(1);
         if (mData && mData.length > 0) {
           if (mData[0].role === 'vet' || mData[0].role === 'farrier') {
@@ -147,7 +146,7 @@ export default function StajoveImperium() {
 
           await fetchMyHorses(prof.club_id, authUser.id);
           await fetchTeam(prof.club_id);
-          await fetchPayments(prof.club_id); // PŘIDÁNO NAČÍTÁNÍ PLATEB
+          await fetchPayments(prof.club_id); 
         } else {
           setUserRole('owner');
           await fetchMyHorses(null, authUser.id);
@@ -162,7 +161,6 @@ export default function StajoveImperium() {
     }
   }
 
-  // FUNKCE PRO PLATBY A QR KÓDY
   async function fetchPayments(clubId) {
     if (!clubId) return;
     const { data } = await supabase
@@ -274,7 +272,6 @@ export default function StajoveImperium() {
     setLoading(false);
   };
 
-  // VYHLEDÁVÁNÍ V KATALOGU A PŘIDÁNÍ DO TÝMU
   const handleSearch = async (e) => {
     const q = e.target.value;
     setSearchQuery(q);
@@ -292,7 +289,6 @@ export default function StajoveImperium() {
     if (!profile?.club_id) return alert('Klub nebyl nalezen.');
     
     if (selectedUser) {
-      // Přidání existujícího uživatele z databáze napřímo
       const { data: check } = await supabase.from('club_members').select('*').eq('club_id', profile.club_id).eq('user_id', selectedUser.id).single();
       if (check) return alert('Tento uživatel už ve vašem týmu je.');
       
@@ -305,7 +301,6 @@ export default function StajoveImperium() {
         fetchTeam(profile.club_id);
       }
     } else {
-      // Generování odkazu pro někoho, kdo v DB ještě není
       const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: searchQuery, role: inviteNewRole, token: token }]);
       
@@ -616,7 +611,7 @@ export default function StajoveImperium() {
   };
 
   const renderLicenseStatus = () => {
-    if (!myClub) return null;
+    if (!myClub || !isClient) return null;
     const now = new Date();
     const trialEnd = myClub.trial_ends_at ? new Date(myClub.trial_ends_at) : null;
     const licenseEnd = myClub.license_valid_until ? new Date(myClub.license_valid_until) : null;
@@ -637,13 +632,19 @@ export default function StajoveImperium() {
           <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: statusColor }}></div>
           <strong style={{ color: statusColor }}>{statusText}</strong>
         </div>
-        <form onSubmit={handleApplyLicense} style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+        
+        <button 
+          onClick={() => window.location.href = '/predplatne'} 
+          style={{ ...styles.btnPrimary, background: '#e65100', width: '100%', marginBottom: '20px' }}
+        >
+          💳 Koupit / Prodloužit licenci
+        </button>
+
+        <h5 style={{ margin: '0 0 10px 0', borderTop: '1px solid #eee', paddingTop: '10px' }}>Mám licenční klíč</h5>
+        <form onSubmit={handleApplyLicense} style={{ display: 'flex', gap: '8px' }}>
           <input type="text" placeholder="Licenční klíč..." value={licenseKeyInput} onChange={e => setLicenseKeyInput(e.target.value)} style={styles.inputSmall} required />
           <button type="submit" style={{ ...styles.btnSave, width: 'auto', background: '#5d4037' }}>Ověřit</button>
         </form>
-        <h5 style={{ margin: '0 0 10px 0', borderTop: '1px solid #eee', paddingTop: '10px' }}>Koupit prodloužení</h5>
-        <button disabled style={{ ...styles.btnOutline, background: '#eee', color: '#888', cursor: 'not-allowed', marginBottom: '8px' }}>💳 Platební brána (Připravujeme)</button>
-        <button onClick={handleContactSupport} style={{ ...styles.btnSave, background: '#0288d1' }}>✉️ Kontaktovat podporu</button>
       </div>
     );
   };
@@ -908,7 +909,7 @@ export default function StajoveImperium() {
                       </select>
                       
                       <button type="submit" style={{ ...styles.btnSave, background: '#4caf50' }}>
-                        {selectedUser ? 'Přidat do týmu' : 'Odeslat pozvánku na tento e-mail'}
+                        {selectedUser ? 'Přidat do týmu' : 'Odeslat pozvánku'}
                       </button>
                     </form>
                   </>
@@ -932,7 +933,6 @@ export default function StajoveImperium() {
               </div>
             )}
 
-            {/* ZÁLOŽKA PLATBY - 100% FUNKČNÍ A VIDITELNÁ PRO MAJITELE */}
             {sidebarTab === 'platby' && (
               <div>
                 <h4 style={{ margin: '10px 0', color: '#5d4037' }}>K proplacení</h4>
@@ -1034,7 +1034,7 @@ export default function StajoveImperium() {
                         )}
                         
                         <button onClick={() => toggleDiary(h.id)} style={{ ...styles.btnOutline, width:'100%', marginTop:'5px', background: isD ? '#f5f5f5' : 'transparent' }}>
-                          {isD ? '📖 Zavřít deník' : '📖 Otevřít deník tréninků'}
+                          {isD ? '📖 Zavřít deník tréninků' : '📖 Otevřít deník tréninků'}
                         </button>
 
                         {isD && (
@@ -1192,11 +1192,10 @@ const mobileStyles = `
 
 const styles = {
   container: { backgroundColor: '#f4ece4', minHeight: '100vh', fontFamily: 'sans-serif' },
-  loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' },
-  topNav: { display: 'flex', background: '#3e2723', padding: '15px', alignItems: 'center', justifyContent: 'space-between' },
+  loader: { height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#00838f' },
+  topNav: { display: 'flex', background: '#3e2723', padding: '15px 20px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' },
   hamburgerBtn: { background: '#ffb300', border: 'none', padding: '8px 12px', borderRadius: '5px', fontWeight: 'bold' },
-  btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
-  btnCalNavSmall: { background: '#eee', border: 'none', padding: '3px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', color: '#333', fontSize: '0.8rem' },
+  btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '6px 12px', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' },
   mainGrid: { display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px', maxWidth: '1400px', margin: '0 auto', padding: '20px' },
   contentGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' },
   card: { backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' },
