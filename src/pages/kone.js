@@ -1,6 +1,7 @@
 /* eslint-disable */
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import Head from 'next/head';
 import React from 'react';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
@@ -76,7 +77,12 @@ export default function StajoveImperium() {
   const [calendarDetailDate, setCalendarDetailDate] = useState(null);
 
   const [teamMembers, setTeamMembers] = useState([]);
-  const [inviteNewEmail, setInviteNewEmail] = useState('');
+  
+  // NAHRAZENO PRO VYHLEDÁVÁNÍ PROFÍKŮ:
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  
   const [inviteNewRole, setInviteNewRole] = useState('trainer');
 
   const [adminView, setAdminView] = useState(false);
@@ -141,7 +147,7 @@ export default function StajoveImperium() {
 
           await fetchMyHorses(prof.club_id, authUser.id);
           await fetchTeam(prof.club_id);
-          await fetchPayments(prof.club_id); // NAČÍTÁNÍ PLATEB JE ZPĚT
+          await fetchPayments(prof.club_id); // PŘIDÁNO NAČÍTÁNÍ PLATEB
         } else {
           setUserRole('owner');
           await fetchMyHorses(null, authUser.id);
@@ -161,7 +167,7 @@ export default function StajoveImperium() {
     if (!clubId) return;
     const { data } = await supabase
       .from('payments')
-      .select('*, profiles:professional_id(full_name, bank_account)')
+      .select('*, profiles:professional_id(full_name, bank_account, billing_info)')
       .eq('club_id', clubId)
       .eq('is_paid', false);
     setAllPayments(data || []);
@@ -268,21 +274,51 @@ export default function StajoveImperium() {
     setLoading(false);
   };
 
-  const handleInviteMember = async (e) => {
+  // VYHLEDÁVÁNÍ V KATALOGU A PŘIDÁNÍ DO TÝMU
+  const handleSearch = async (e) => {
+    const q = e.target.value;
+    setSearchQuery(q);
+    setSelectedUser(null);
+    if (q.length > 2) {
+      const { data } = await supabase.from('profiles').select('*').ilike('email', `%${q}%`).limit(5);
+      setSearchResults(data || []);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  const handleDirectAddOrInvite = async (e) => {
     e.preventDefault();
     if (!profile?.club_id) return alert('Klub nebyl nalezen.');
-    const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: inviteNewEmail, role: inviteNewRole, token: token }]);
     
-    if (error) {
-      alert('Chyba: ' + error.message);
+    if (selectedUser) {
+      // Přidání existujícího uživatele z databáze napřímo
+      const { data: check } = await supabase.from('club_members').select('*').eq('club_id', profile.club_id).eq('user_id', selectedUser.id).single();
+      if (check) return alert('Tento uživatel už ve vašem týmu je.');
+      
+      const { error } = await supabase.from('club_members').insert([{ club_id: profile.club_id, user_id: selectedUser.id, role: inviteNewRole }]);
+      if (error) alert(error.message);
+      else {
+        alert('Uživatel byl úspěšně přidán do vašeho týmu!');
+        setSearchQuery('');
+        setSelectedUser(null);
+        fetchTeam(profile.club_id);
+      }
     } else {
-      const path = (inviteNewRole === 'vet' || inviteNewRole === 'farrier') ? '/pece' : '/kone';
-      const link = `${window.location.origin}${path}?invite=${token}`;
-      navigator.clipboard.writeText(link).then(() => { 
-        alert(`Pozvánka zkopírována:\n${link}`); 
-        setInviteNewEmail(''); 
-      });
+      // Generování odkazu pro někoho, kdo v DB ještě není
+      const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      const { error } = await supabase.from('invitations').insert([{ club_id: profile.club_id, email: searchQuery, role: inviteNewRole, token: token }]);
+      
+      if (error) {
+        alert('Chyba: ' + error.message);
+      } else {
+        const path = (inviteNewRole === 'vet' || inviteNewRole === 'farrier') ? '/pece' : '/kone';
+        const link = `${window.location.origin}${path}?invite=${token}`;
+        navigator.clipboard.writeText(link).then(() => { 
+          alert(`Uživatel nebyl nalezen v databázi.\nPozvánka vygenerována a zkopírována:\n${link}`); 
+          setSearchQuery(''); 
+        });
+      }
     }
   };
 
@@ -616,6 +652,9 @@ export default function StajoveImperium() {
 
   return (
     <div style={styles.container}>
+      <Head>
+        <title>Stájové Impérium | Majitelé</title>
+      </Head>
       <style>{mobileStyles}</style>
       {renderCalendarDetailModal()}
       
@@ -833,9 +872,31 @@ export default function StajoveImperium() {
                 {userRole === 'owner' && (
                   <>
                     <h4 style={{ margin: '0 0 10px 0', color: '#5d4037' }}>Přidat člena týmu</h4>
-                    <form onSubmit={handleInviteMember} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', background: '#fafafa', padding: '10px', borderRadius: '8px' }}>
-                      <label style={styles.formLabel}>E-mail člena:</label>
-                      <input type="email" value={inviteNewEmail} onChange={e => setInviteNewEmail(e.target.value)} style={styles.inputSmall} required />
+                    <form onSubmit={handleDirectAddOrInvite} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px', background: '#fafafa', padding: '10px', borderRadius: '8px' }}>
+                      <label style={styles.formLabel}>E-mail k vyhledání / pozvání:</label>
+                      <input 
+                        type="email" 
+                        placeholder="Hledat uživatele podle e-mailu..." 
+                        value={searchQuery} 
+                        onChange={handleSearch} 
+                        style={styles.inputSmall} 
+                        required 
+                      />
+                      
+                      {searchResults.length > 0 && !selectedUser && (
+                        <div style={{ background: '#fff', border: '1px solid #ccc', borderRadius: '4px', marginTop: '-5px', zIndex: 10 }}>
+                          {searchResults.map(res => (
+                            <div 
+                              key={res.id} 
+                              onClick={() => { setSelectedUser(res); setSearchQuery(res.email); setSearchResults([]); }}
+                              style={{ padding: '8px', borderBottom: '1px solid #eee', cursor: 'pointer', fontSize: '0.85rem' }}
+                            >
+                              <strong>{res.full_name || 'Bez jména'}</strong> ({res.email})
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {selectedUser && <p style={{ margin: '0', fontSize: '0.8rem', color: '#2e7d32', fontWeight: 'bold' }}>✓ Uživatel nalezen a vybrán!</p>}
                       
                       <label style={styles.formLabel}>Role:</label>
                       <select value={inviteNewRole} onChange={e => setInviteNewRole(e.target.value)} style={styles.inputSmall}>
@@ -845,7 +906,10 @@ export default function StajoveImperium() {
                         <option value="farrier">KO - Kovář</option>
                         <option value="vet">VE - Veterinář</option>
                       </select>
-                      <button type="submit" style={{ ...styles.btnSave, background: '#4caf50' }}>Vygenerovat odkaz</button>
+                      
+                      <button type="submit" style={{ ...styles.btnSave, background: '#4caf50' }}>
+                        {selectedUser ? 'Přidat do týmu' : 'Odeslat pozvánku na tento e-mail'}
+                      </button>
                     </form>
                   </>
                 )}
@@ -868,7 +932,7 @@ export default function StajoveImperium() {
               </div>
             )}
 
-            {/* SEKCE PLATBY PRO MAJITELE/SPOLUPRACOVNÍKA */}
+            {/* ZÁLOŽKA PLATBY - 100% FUNKČNÍ A VIDITELNÁ PRO MAJITELE */}
             {sidebarTab === 'platby' && (
               <div>
                 <h4 style={{ margin: '10px 0', color: '#5d4037' }}>K proplacení</h4>
@@ -877,15 +941,22 @@ export default function StajoveImperium() {
                 ) : (
                   allPayments.map(p => (
                     <div key={p.id} style={{ background: '#fff3e0', padding: '15px', borderRadius: '8px', marginBottom: '10px', border: '1px solid #ffe0b2' }}>
-                      <div style={{ fontSize: '1rem', color: '#d32f2f' }}>
-                        <strong>{p.amount} Kč</strong>
+                      <div style={{ fontSize: '1rem', color: '#d32f2f', fontWeight: 'bold' }}>
+                        {p.amount} Kč
                       </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#333' }}>
                         {p.profiles?.full_name}
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '10px' }}>
                         {p.description}
                       </div>
+                      
+                      {p.profiles?.billing_info && (
+                        <div style={{ fontSize: '0.75rem', color: '#555', marginBottom: '10px', padding: '8px', background: '#fff', borderRadius: '4px', border: '1px dashed #ccc' }}>
+                          <strong>Fakturační údaje:</strong><br/>
+                          {p.profiles.billing_info}
+                        </div>
+                      )}
                       
                       {p.profiles?.bank_account && (
                         <div style={{ marginTop: '10px', textAlign: 'center', background: '#fff', padding: '10px', borderRadius: '8px' }}>
@@ -966,7 +1037,6 @@ export default function StajoveImperium() {
                           {isD ? '📖 Zavřít deník' : '📖 Otevřít deník tréninků'}
                         </button>
 
-                        {/* PLNĚ OBNOVENÝ FORMULÁŘ PRO ZÁPIS DO DENÍKU */}
                         {isD && (
                           <div style={{ marginTop:'15px', background:'#f9f9f9', padding:'15px', borderRadius:'8px', border: '1px solid #eee' }}>
                             {(userRole === 'owner' || userRole === 'collaborator') && (
