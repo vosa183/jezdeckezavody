@@ -67,9 +67,56 @@ export default function TiskoveCentrum() {
     window.print();
   };
 
+  // POMOCNÁ FUNKCE: Vygeneruje HTML tabulku pro e-mail
+  const generateHtmlTableForEmail = (discipline, riders) => {
+    const scoredRiders = riders.filter(r => scoresheets.some(s => s.participant_id === r.id));
+    if (scoredRiders.length === 0) return "";
+
+    const signatureObj = scoresheets.find(s => s.participant_id === scoredRiders[0].id);
+    const maneuverNames = signatureObj?.score_data?.maneuverNames || Array(20).fill('');
+    let activeCount = 0;
+    for(let i=0; i<20; i++){
+       if(maneuverNames[i] && maneuverNames[i].trim() !== '') activeCount = i + 1;
+    }
+    if(activeCount === 0) activeCount = 10;
+    const printNames = maneuverNames.slice(0, activeCount);
+
+    let html = `<h2 style="color: #3e2723; border-bottom: 2px solid #3e2723; padding-bottom: 5px; margin-top: 30px;">VÝSLEDKY: ${discipline}</h2>`;
+    html += `<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: sans-serif; border: 1px solid #000;">`;
+    html += `<thead style="background-color: #f5f5f5;">
+      <tr>
+        <th style="border: 1px solid #000; padding: 10px; text-align: center;">St.č.</th>
+        <th style="border: 1px solid #000; padding: 10px; text-align: left;">Jezdec / Kůň</th>
+        <th style="border: 1px solid #000; padding: 10px; text-align: center;">Výsledek</th>
+      </tr>
+    </thead><tbody>`;
+
+    scoredRiders.forEach(r => {
+      const sObj = scoresheets.find(s => s.participant_id === r.id);
+      const dqStatus = sObj?.score_data?.disqualification;
+      const finalScore = dqStatus ? dqStatus : (sObj ? sObj.total_score : '-');
+      
+      html += `<tr>
+        <td style="border: 1px solid #000; padding: 10px; text-align: center; font-weight: bold; font-size: 1.1em;">${r.start_number}</td>
+        <td style="border: 1px solid #000; padding: 10px;">
+          <strong style="font-size: 1.1em;">${r.rider_name}</strong><br/>
+          <span style="color: #666; font-style: italic;">${r.horse_name}</span>
+        </td>
+        <td style="border: 1px solid #000; padding: 10px; text-align: center; font-weight: bold; font-size: 1.1em; color: ${dqStatus ? 'red' : '#2e7d32'};">
+          ${finalScore} ${dqStatus ? '' : 'b.'}
+        </td>
+      </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    return html;
+  };
+
   const handleSendAllResults = async () => {
     if (!selectedEvent) return alert("Nejprve vyberte závod!");
-    if (!confirm('Opravdu chcete odeslat KOMPLETNÍ výsledky ze všech disciplín VŠEM jezdcům z tohoto závodu?')) return;
+    
+    // INFO PRO ADMINA O TESTU
+    if (!confirm('TESTOVACÍ REŽIM: Opravdu chcete odeslat kompletní výsledky na testovací adresu vosa183@gmail.com?')) return;
 
     setIsSendingEmails(true);
 
@@ -77,83 +124,63 @@ export default function TiskoveCentrum() {
     const eventRegs = allRegistrations.filter(r => r.event_id === selectedEvent);
     const disciplines = [...new Set(eventRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
 
-    // 1. Sesbírat unikátní e-maily účastníků
-    const uniqueUserIds = [...new Set(eventRegs.map(r => r.user_id))];
-    const emailsToSend = uniqueUserIds.map(uid => {
-      const prof = allProfiles.find(p => p.id === uid);
-      return prof ? prof.email : null;
-    }).filter(email => email && email.includes('@'));
+    // TESTOVACÍ OMEZENÍ - Posíláme pouze na jeden zadaný email
+    const emailsToSend = ['vosa183@gmail.com'];
 
-    if (emailsToSend.length === 0) {
-      alert('Nenalezeny žádné platné e-maily účastníků.');
-      setIsSendingEmails(false);
-      return;
-    }
-
-    // 2. Vygenerovat PĚKNÝ text s kompletními výsledky
-    let text = `Krásný den všem jezdcům a příznivcům westernu!\n\n`;
-    text += `Závody "${eventObj.name}" jsou úspěšně za námi. Děkujeme Vám za fantastickou atmosféru, skvělé sportovní výkony a fair-play přístup!\n\n`;
-    text += `Zasíláme Vám slíbený kompletní přehled výsledků ze všech disciplín:\n\n`;
-    text += `==================================\n`;
-    text += `🏆 KOMPLETNÍ VÝSLEDKOVÁ LISTINA 🏆\n`;
-    text += `==================================\n\n`;
+    // Vygenerování pěkného HTML obsahu
+    let emailHtml = `
+      <div style="font-family: sans-serif; max-width: 800px; margin: 0 auto; color: #333; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+        <div style="text-align: center; background-color: #3e2723; padding: 30px;">
+          <h1 style="color: #fff; margin: 0; text-transform: uppercase; letter-spacing: 2px;">Oficiální výsledky</h1>
+          <p style="color: #ffb300; margin: 10px 0 0 0; font-size: 1.2em; font-weight: bold;">${eventObj.name}</p>
+        </div>
+        
+        <div style="padding: 30px; background-color: #fff;">
+          <p style="font-size: 1.1em;">Krásný den všem jezdcům,</p>
+          <p>gratulujeme k dokončení závodů pod Humprechtem! Děkujeme za skvělou atmosféru a sportovní výkony. Níže Vám zasíláme kompletní výsledkovou listinu všech disciplín.</p>
+          
+          <div style="background-color: #f9f9f9; border-left: 5px solid #3e2723; padding: 15px; margin: 20px 0;">
+            <strong>Informace k hodnocení:</strong> Detailní archy s body za jednotlivé manévry a podpisy rozhodčího jsou k nahlédnutí u štábu závodů.
+          </div>
+    `;
 
     disciplines.forEach(disc => {
-      const ridersInDisc = eventRegs.filter(r => r.discipline === disc);
-      const scoredRiders = ridersInDisc
-        .map(r => {
-          const sObj = scoresheets.find(s => s.participant_id === r.id);
-          const sc = sObj?.score_data?.disqualification ? sObj.score_data.disqualification : (sObj ? Number(sObj.total_score) : -999);
-          return { ...r, totalScore: sc };
-        })
-        .filter(r => r.totalScore !== -999)
-        .sort((a, b) => {
-          if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
-          if (a.draw_order !== null) return -1;
-          if (b.draw_order !== null) return 1;
-          if (a.totalScore === 'DQ') return 1;
-          if (b.totalScore === 'DQ') return -1;
-          if (a.totalScore === 'OP') return 1;
-          if (b.totalScore === 'OP') return -1;
-          return b.totalScore - a.totalScore;
-        });
-
-      if (scoredRiders.length > 0) {
-        text += `📍 ${disc.toUpperCase()}\n`;
-        text += `----------------------------------\n`;
-        scoredRiders.forEach((r, index) => {
-          let medal = '🏅';
-          if (r.totalScore === 'DQ' || r.totalScore === 'OP') medal = '❌';
-          else if (index === 0) medal = '🥇';
-          else if (index === 1) medal = '🥈';
-          else if (index === 2) medal = '🥉';
-          
-          const scoreText = (r.totalScore === 'DQ' || r.totalScore === 'OP') ? r.totalScore : `${r.totalScore} b.`;
-          text += `${medal} ${index + 1}. místo: ${r.rider_name} (${r.horse_name}) - Skóre: ${scoreText}\n`;
-        });
-        text += `\n`;
-      }
+      const riders = eventRegs.filter(r => r.discipline === disc).sort((a, b) => {
+        const sa = scoresheets.find(s => s.participant_id === a.id);
+        const sb = scoresheets.find(s => s.participant_id === b.id);
+        // Jednoduché řazení podle skóre
+        const scoreA = sa?.total_score || -999;
+        const scoreB = sb?.total_score || -999;
+        return scoreB - scoreA;
+      });
+      emailHtml += generateHtmlTableForEmail(disc, riders);
     });
 
-    text += `==================================\n\n`;
-    text += `Ještě jednou velká gratulace všem umístěným! Originální tištěné scoresheety (archy s hodnocením manévrů) jsou k dispozici u pořadatele.\n\n`;
-    text += `Těšíme se na Vás na dalších závodech!\n\n`;
-    text += `S pozdravem,\nŠtáb závodů JK Sobotka\nSystém Jezdecké Impérium`;
+    emailHtml += `
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
+            <p>Těšíme se na Vás u dalších startů!</p>
+            <p><strong>Tým JK Sobotka</strong><br/><em>Jezdecké Impérium</em></p>
+          </div>
+        </div>
+        <div style="text-align: center; font-size: 0.8em; color: #999; padding: 20px; background-color: #f5f5f5;">
+          Zpráva byla odeslána automaticky systémem Jezdecké Impérium.
+        </div>
+      </div>
+    `;
 
-    // 3. Odeslat e-maily přes existující API
     try {
       await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subject: `Oficiální výsledky závodů: ${eventObj.name}`,
-          text: text,
+          subject: `[TEST] Oficiální výsledky: ${eventObj.name}`,
+          html: emailHtml,
           emails: emailsToSend
         })
       });
-      alert(`Úspěšně odesláno na ${emailsToSend.length} e-mailových adres!`);
+      alert(`TEST DOKONČEN! Kompletní výsledky byly odeslány na vosa183@gmail.com.`);
     } catch (err) {
-      alert('Chyba při odesílání e-mailů: ' + err.message);
+      alert('Chyba při odesílání testu: ' + err.message);
     } finally {
       setIsSendingEmails(false);
     }
@@ -194,7 +221,7 @@ export default function TiskoveCentrum() {
                   <th style={{border: '2px solid black', padding: '15px', textAlign: 'left', color: 'black'}}>Jméno koně</th>
                   <th style={{border: '2px solid black', padding: '15px', textAlign: 'center', width: '250px', color: 'black'}}>Průkaz / ID</th>
                   <th style={{border: '2px solid black', padding: '15px', textAlign: 'left', color: 'black'}}>Majitel</th>
-                  <th style={{border: '2px solid black', padding: '15px', textAlign: 'center', width: '200px', color: 'black'}}>Kontrola<br/>(Krev/Očk.)</th>
+                  <th style={{border: '2px solid black', padding: '15px', textAlign: 'center', width: '200px', color: 'black'}}>Kontrola</th>
                </tr>
             </thead>
             <tbody>
@@ -233,14 +260,12 @@ export default function TiskoveCentrum() {
             return a.start_number - b.start_number;
           });
 
-          // Pokud tiskneme vyplněné, necháme jen ty se skóre
           if (mode === 'filled') {
             ridersInDiscipline = ridersInDiscipline.filter(r => scoresheets.some(s => s.participant_id === r.id));
           }
 
           if (ridersInDiscipline.length === 0) return null;
 
-          // Počet sloupců a názvy manévrů
           let activeCount = 10; 
           let printNames = Array(10).fill('');
 
@@ -264,12 +289,6 @@ export default function TiskoveCentrum() {
                 <h3 style={{ margin: '5px 0 0 0', color: 'black', fontSize: '1.4rem' }}>
                   {mode === 'filled' ? 'VÝSLEDKY: ' : 'SCORESHEET: '} {discipline}
                 </h3>
-                {mode === 'empty' && (
-                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
-                    <strong style={{fontSize: '1.1rem', color: 'black'}}>Úloha (Pattern):</strong>
-                    <div style={{ borderBottom: '2px dotted black', width: '300px', height: '20px' }}></div>
-                  </div>
-                )}
               </div>
               
               <table className="wrc-scoresheet" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', border: '2px solid black' }}>
@@ -368,7 +387,7 @@ export default function TiskoveCentrum() {
       </div>
 
       <div className="no-print" style={{ maxWidth: '900px', margin: '20px auto', padding: '30px', background: '#fff', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
-        <h2 style={{ marginTop: 0, color: '#0277bd', borderBottom: '2px solid #e3f2fd', paddingBottom: '10px' }}>Nastavení tisku</h2>
+        <h2 style={{ marginTop: 0, color: '#0277bd', borderBottom: '2px solid #e3f2fd', paddingBottom: '10px' }}>Nastavení tisku a test rozesílky</h2>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div>
@@ -382,43 +401,18 @@ export default function TiskoveCentrum() {
           <div>
             <label style={styles.label}>2. Co chcete vytisknout?</label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <button 
-                onClick={() => setPrintType('empty')} 
-                style={{ ...styles.btnSelect, background: printType === 'empty' ? '#0277bd' : '#f5f5f5', color: printType === 'empty' ? '#fff' : '#333' }}
-              >
-                📝 Prázdné Scoresheety
-              </button>
-              <button 
-                onClick={() => setPrintType('filled')} 
-                style={{ ...styles.btnSelect, background: printType === 'filled' ? '#e65100' : '#f5f5f5', color: printType === 'filled' ? '#fff' : '#333' }}
-              >
-                🏆 Vyplněné Scoresheety
-              </button>
-              <button 
-                onClick={() => setPrintType('vet')} 
-                style={{ ...styles.btnSelect, background: printType === 'vet' ? '#2e7d32' : '#f5f5f5', color: printType === 'vet' ? '#fff' : '#333' }}
-              >
-                🐴 Veterinární Přejímka
-              </button>
+              <button onClick={() => setPrintType('empty')} style={{ ...styles.btnSelect, background: printType === 'empty' ? '#0277bd' : '#f5f5f5', color: printType === 'empty' ? '#fff' : '#333' }}>📝 Prázdné archy</button>
+              <button onClick={() => setPrintType('filled')} style={{ ...styles.btnSelect, background: printType === 'filled' ? '#e65100' : '#f5f5f5', color: printType === 'filled' ? '#fff' : '#333' }}>🏆 Vyplněné výsledky</button>
+              <button onClick={() => setPrintType('vet')} style={{ ...styles.btnSelect, background: printType === 'vet' ? '#2e7d32' : '#f5f5f5', color: printType === 'vet' ? '#fff' : '#333' }}>🐴 Veterina</button>
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '10px' }}>
-            <button 
-              onClick={handlePrint} 
-              disabled={!selectedEvent} 
-              style={{ ...styles.btnPrimary, flex: 1, opacity: selectedEvent ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
-            >
-              🖨️ OTEVŘÍT TISKÁRNU
-            </button>
-
+            <button onClick={handlePrint} disabled={!selectedEvent} style={{ ...styles.btnPrimary, flex: 1, opacity: selectedEvent ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}>🖨️ TISKNOUT NA PAPÍR</button>
+            
             {printType === 'filled' && (
-              <button 
-                onClick={handleSendAllResults} 
-                disabled={!selectedEvent || isSendingEmails} 
-                style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
-              >
-                {isSendingEmails ? 'Odesílám e-maily...' : '📧 ODESLAT VÝSLEDKY VŠEM JEZDCŮM'}
+              <button onClick={handleSendAllResults} disabled={!selectedEvent || isSendingEmails} style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}>
+                {isSendingEmails ? 'Rozesílám test...' : '📧 TEST: POSLAT VŠE NA vosa183@gmail.com'}
               </button>
             )}
           </div>
@@ -434,25 +428,15 @@ export default function TiskoveCentrum() {
   );
 }
 
-// Magie pro tiskárny - tvrdé zalamování stránek!
 const printStyles = `
   @media print {
     @page { size: landscape; margin: 10mm; }
     body, html { background: white !important; color: black !important; }
     .no-print { display: none !important; }
-    
-    /* Vynucení odskoku na novou stránku za každým obalem */
-    .page-break { 
-      page-break-after: always !important; 
-      break-after: page !important; 
-      display: block !important;
-      clear: both !important;
-    }
-    
+    .page-break { page-break-after: always !important; break-after: page !important; display: block !important; clear: both !important; }
     table { page-break-inside: auto; width: 100% !important; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    
     .wrc-scoresheet td[rowspan="2"] { font-size: 16px !important; font-weight: 900 !important; }
   }
 `;
@@ -463,7 +447,7 @@ const styles = {
   topNav: { display: 'flex', background: '#212121', padding: '15px 30px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' },
   btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
   label: { display: 'block', fontSize: '1rem', fontWeight: 'bold', color: '#333', marginBottom: '8px' },
-  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '2px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
+  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
   btnSelect: { flex: 1, border: '1px solid #ddd', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.2s' },
   btnPrimary: { width: '100%', background: '#0277bd', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', transition: 'opacity 0.2s' }
 };
