@@ -11,6 +11,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 export default function TiskoveCentrum() {
   const [loading, setLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
   
   const [events, setEvents] = useState([]);
   const [allRegistrations, setAllRegistrations] = useState([]);
@@ -54,7 +55,7 @@ export default function TiskoveCentrum() {
       const { data: horses } = await supabase.from('horses').select('*');
       setAllHorses(horses || []);
 
-      const { data: profs } = await supabase.from('profiles').select('id, full_name');
+      const { data: profs } = await supabase.from('profiles').select('id, full_name, email');
       setAllProfiles(profs || []);
 
     } finally {
@@ -64,6 +65,98 @@ export default function TiskoveCentrum() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleSendAllResults = async () => {
+    if (!selectedEvent) return alert("Nejprve vyberte závod!");
+    if (!confirm('Opravdu chcete odeslat KOMPLETNÍ výsledky ze všech disciplín VŠEM jezdcům z tohoto závodu?')) return;
+
+    setIsSendingEmails(true);
+
+    const eventObj = events.find(e => e.id === selectedEvent);
+    const eventRegs = allRegistrations.filter(r => r.event_id === selectedEvent);
+    const disciplines = [...new Set(eventRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
+
+    // 1. Sesbírat unikátní e-maily účastníků
+    const uniqueUserIds = [...new Set(eventRegs.map(r => r.user_id))];
+    const emailsToSend = uniqueUserIds.map(uid => {
+      const prof = allProfiles.find(p => p.id === uid);
+      return prof ? prof.email : null;
+    }).filter(email => email && email.includes('@'));
+
+    if (emailsToSend.length === 0) {
+      alert('Nenalezeny žádné platné e-maily účastníků.');
+      setIsSendingEmails(false);
+      return;
+    }
+
+    // 2. Vygenerovat PĚKNÝ text s kompletními výsledky
+    let text = `Krásný den všem jezdcům a příznivcům westernu!\n\n`;
+    text += `Závody "${eventObj.name}" jsou úspěšně za námi. Děkujeme Vám za fantastickou atmosféru, skvělé sportovní výkony a fair-play přístup!\n\n`;
+    text += `Zasíláme Vám slíbený kompletní přehled výsledků ze všech disciplín:\n\n`;
+    text += `==================================\n`;
+    text += `🏆 KOMPLETNÍ VÝSLEDKOVÁ LISTINA 🏆\n`;
+    text += `==================================\n\n`;
+
+    disciplines.forEach(disc => {
+      const ridersInDisc = eventRegs.filter(r => r.discipline === disc);
+      const scoredRiders = ridersInDisc
+        .map(r => {
+          const sObj = scoresheets.find(s => s.participant_id === r.id);
+          const sc = sObj?.score_data?.disqualification ? sObj.score_data.disqualification : (sObj ? Number(sObj.total_score) : -999);
+          return { ...r, totalScore: sc };
+        })
+        .filter(r => r.totalScore !== -999)
+        .sort((a, b) => {
+          if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
+          if (a.draw_order !== null) return -1;
+          if (b.draw_order !== null) return 1;
+          if (a.totalScore === 'DQ') return 1;
+          if (b.totalScore === 'DQ') return -1;
+          if (a.totalScore === 'OP') return 1;
+          if (b.totalScore === 'OP') return -1;
+          return b.totalScore - a.totalScore;
+        });
+
+      if (scoredRiders.length > 0) {
+        text += `📍 ${disc.toUpperCase()}\n`;
+        text += `----------------------------------\n`;
+        scoredRiders.forEach((r, index) => {
+          let medal = '🏅';
+          if (r.totalScore === 'DQ' || r.totalScore === 'OP') medal = '❌';
+          else if (index === 0) medal = '🥇';
+          else if (index === 1) medal = '🥈';
+          else if (index === 2) medal = '🥉';
+          
+          const scoreText = (r.totalScore === 'DQ' || r.totalScore === 'OP') ? r.totalScore : `${r.totalScore} b.`;
+          text += `${medal} ${index + 1}. místo: ${r.rider_name} (${r.horse_name}) - Skóre: ${scoreText}\n`;
+        });
+        text += `\n`;
+      }
+    });
+
+    text += `==================================\n\n`;
+    text += `Ještě jednou velká gratulace všem umístěným! Originální tištěné scoresheety (archy s hodnocením manévrů) jsou k dispozici u pořadatele.\n\n`;
+    text += `Těšíme se na Vás na dalších závodech!\n\n`;
+    text += `S pozdravem,\nŠtáb závodů JK Sobotka\nSystém Jezdecké Impérium`;
+
+    // 3. Odeslat e-maily přes existující API
+    try {
+      await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: `Oficiální výsledky závodů: ${eventObj.name}`,
+          text: text,
+          emails: emailsToSend
+        })
+      });
+      alert(`Úspěšně odesláno na ${emailsToSend.length} e-mailových adres!`);
+    } catch (err) {
+      alert('Chyba při odesílání e-mailů: ' + err.message);
+    } finally {
+      setIsSendingEmails(false);
+    }
   };
 
   const renderVeterinaryList = (eventId) => {
@@ -293,13 +386,13 @@ export default function TiskoveCentrum() {
                 onClick={() => setPrintType('empty')} 
                 style={{ ...styles.btnSelect, background: printType === 'empty' ? '#0277bd' : '#f5f5f5', color: printType === 'empty' ? '#fff' : '#333' }}
               >
-                📝 Prázdné Scoresheety (Pro rozhodčí)
+                📝 Prázdné Scoresheety
               </button>
               <button 
                 onClick={() => setPrintType('filled')} 
                 style={{ ...styles.btnSelect, background: printType === 'filled' ? '#e65100' : '#f5f5f5', color: printType === 'filled' ? '#fff' : '#333' }}
               >
-                🏆 Vyplněné Scoresheety (Výsledky)
+                🏆 Vyplněné Scoresheety
               </button>
               <button 
                 onClick={() => setPrintType('vet')} 
@@ -310,13 +403,25 @@ export default function TiskoveCentrum() {
             </div>
           </div>
 
-          <button 
-            onClick={handlePrint} 
-            disabled={!selectedEvent} 
-            style={{ ...styles.btnPrimary, opacity: selectedEvent ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
-          >
-            🖨️ OTEVŘÍT TISKÁRNU
-          </button>
+          <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '10px' }}>
+            <button 
+              onClick={handlePrint} 
+              disabled={!selectedEvent} 
+              style={{ ...styles.btnPrimary, flex: 1, opacity: selectedEvent ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
+            >
+              🖨️ OTEVŘÍT TISKÁRNU
+            </button>
+
+            {printType === 'filled' && (
+              <button 
+                onClick={handleSendAllResults} 
+                disabled={!selectedEvent || isSendingEmails} 
+                style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
+              >
+                {isSendingEmails ? 'Odesílám e-maily...' : '📧 ODESLAT VÝSLEDKY VŠEM JEZDCŮM'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
