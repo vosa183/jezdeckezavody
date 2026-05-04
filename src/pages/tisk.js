@@ -219,11 +219,17 @@ export default function TiskoveCentrum() {
     </html>`;
 
     try {
-      // 2. Nahrajeme HTML dokument do Supabase Storage
-      const blob = new Blob([fullHtmlDocument], { type: 'text/html;charset=utf-8' });
       const fileName = `vysledky_${selectedEvent}_${Date.now()}.html`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage.from('patterns').upload(fileName, blob);
+      // 2. NAHRÁVÁNÍ DO SUPABASE S VYNUCENÝM FORMÁTEM
+      const { error: uploadError } = await supabase.storage.from('patterns').upload(
+        fileName, 
+        fullHtmlDocument, 
+        { 
+          contentType: 'text/html; charset=UTF-8', 
+          upsert: true 
+        }
+      );
       
       if (uploadError) {
         throw new Error('Chyba při nahrávání do Supabase: ' + uploadError.message);
@@ -233,7 +239,7 @@ export default function TiskoveCentrum() {
       const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
-      // 4. Odešleme krásný čistý textový e-mail s odkazem
+      // 4. Odešleme čistý textový e-mail s odkazem
       const emailText = `Krásný den,\n\ngratulujeme k dokončení závodů "${eventObj.name}"!\n\nKompletní výsledkové archy všech disciplín (včetně hodnocení manévrů od rozhodčího) jsme zpracovali a nahráli pro Vás na tento bezpečný odkaz. Stačí na něj kliknout a výsledky si pohodlně prohlédnout z mobilu i počítače:\n\n👉 ODKAZ NA VÝSLEDKY:\n${publicUrl}\n\nOriginální papírové archy s podpisy rozhodčího jsou k nahlédnutí u pořadatele.\n\nDěkujeme za Vaši účast a skvělou atmosféru. Těšíme se na Vás na dalších závodech!\n\nTým JK Sobotka\njezdeckezavody.cz`;
 
       const response = await fetch('/api/send-email', {
@@ -348,7 +354,7 @@ export default function TiskoveCentrum() {
             const maneuverNames = signatureObj?.score_data?.maneuverNames || Array(20).fill('');
             let maxIndex = 0;
             for(let i=0; i<20; i++){
-               if(maneuverNames[i] && maneuverNames[i].trim() !== '') maxIndex = i + 1;
+               if(maneuverNames[i] && maneuverNames[i].trim() !== maxIndex) maxIndex = i + 1;
             }
             activeCount = maxIndex > 0 ? maxIndex : 10;
             printNames = maneuverNames.slice(0, activeCount);
@@ -517,7 +523,7 @@ export default function TiskoveCentrum() {
                 disabled={!selectedEvent || isSendingEmails} 
                 style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
               >
-                {isSendingEmails ? 'Odesílám...' : '📧 TEST: ODESLAT JAKO ODKAZ'}
+                {isSendingEmails ? 'Odesílám test...' : '📧 TEST: ODESLAT TABULKY JAKO ODKAZ'}
               </button>
             )}
           </div>
