@@ -36,7 +36,9 @@ export default function TiskoveCentrum() {
       }
 
       const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-      if (!['admin', 'superadmin', 'judge', 'speaker'].includes(prof?.role)) {
+      
+      // ZMĚNA 1: POUZE ADMIN A SUPERADMIN
+      if (!['admin', 'superadmin'].includes(prof?.role)) {
         window.location.href = '/kone';
         return;
       }
@@ -221,7 +223,7 @@ export default function TiskoveCentrum() {
     try {
       const fileName = `vysledky_${selectedEvent}_${Date.now()}.html`;
       
-      // 2. NAHRÁVÁNÍ DO SUPABASE S VYNUCENÝM FORMÁTEM
+      // ZMĚNA 2: OPRAVENÉ NAHRÁVÁNÍ NA SUPABASE, ABY SE OTEVŘELA WEBOVÁ STRÁNKA
       const { error: uploadError } = await supabase.storage.from('patterns').upload(
         fileName, 
         fullHtmlDocument, 
@@ -568,7 +570,7 @@ const styles = {
   topNav: { display: 'flex', background: '#212121', padding: '15px 30px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' },
   btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
   label: { display: 'block', fontSize: '1rem', fontWeight: 'bold', color: '#333', marginBottom: '8px' },
-  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '2px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
+  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
   btnSelect: { flex: 1, border: '1px solid #ddd', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.2s' },
   btnPrimary: { width: '100%', background: '#0277bd', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', transition: 'opacity 0.2s' }
 };
