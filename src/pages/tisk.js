@@ -22,6 +22,9 @@ export default function TiskoveCentrum() {
   // Ovládací prvky
   const [selectedEvent, setSelectedEvent] = useState('');
   const [printType, setPrintType] = useState('empty'); // 'empty', 'filled', 'vet'
+  
+  // TADY JE TVOJE NOVÁ FUNKCE PRO NAHRÁNÍ PDF
+  const [pdfFile, setPdfFile] = useState(null);
 
   useEffect(() => {
     checkAuthAndLoadData();
@@ -37,7 +40,7 @@ export default function TiskoveCentrum() {
 
       const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).single();
       
-      // ZMĚNA 1: POUZE ADMIN A SUPERADMIN
+      // ZABEZPEČENÍ: JEN ADMIN A SUPERADMIN
       if (!['admin', 'superadmin'].includes(prof?.role)) {
         window.location.href = '/kone';
         return;
@@ -69,166 +72,26 @@ export default function TiskoveCentrum() {
     window.print();
   };
 
-  // POMOCNÁ FUNKCE: Vygeneruje kompletní HTML tabulku Scoresheetu pro Supabase soubor
-  const generateHtmlTableForEmail = (discipline, riders) => {
-    const scoredRiders = riders.filter(r => scoresheets.some(s => s.participant_id === r.id));
-    if (scoredRiders.length === 0) return "";
-
-    const signatureObj = scoresheets.find(s => s.participant_id === scoredRiders[0].id);
-    const maneuverNames = signatureObj?.score_data?.maneuverNames || Array(20).fill('');
-    let activeCount = 0;
-    for(let i=0; i<20; i++){
-       if(maneuverNames[i] && maneuverNames[i].trim() !== '') activeCount = i + 1;
-    }
-    if(activeCount === 0) activeCount = 10;
-    const printNames = maneuverNames.slice(0, activeCount);
-    const cols = Array.from({length: activeCount}, (_, i) => i);
-
-    let html = `<div style="margin-bottom: 40px; font-family: sans-serif; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">`;
-    html += `<div style="text-align: center; border-bottom: 2px solid #5d4037; padding-bottom: 10px; margin-bottom: 15px;">`;
-    html += `<h3 style="margin: 5px 0 0 0; font-size: 20px; color: #5d4037;">VÝSLEDKY: ${discipline}</h3>`;
-    html += `</div>`;
-
-    html += `<div style="overflow-x: auto;">`;
-    html += `<table border="1" cellpadding="8" cellspacing="0" style="width: 100%; border-collapse: collapse; border: 2px solid #333; font-size: 13px; text-align: center; min-width: 800px;">`;
-    
-    // THEAD
-    html += `<thead style="background-color: #eeeeee;">`;
-    html += `<tr>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 8px; width: 40px;">DRAW</th>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 8px; width: 40px;">EXH#</th>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 8px; text-align: left; min-width: 150px;">JEZDEC / KŮŇ</th>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 5px; width: 40px;"></th>`;
-    html += `<th colspan="${activeCount}" style="border: 1px solid #333; padding: 8px;">MANÉVRY</th>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 8px; width: 70px;">PENALTY<br/>TOTAL</th>`;
-    html += `<th rowspan="2" style="border: 1px solid #333; padding: 8px; width: 80px;">FINAL<br/>SCORE</th>`;
-    html += `</tr>`;
-    html += `<tr>`;
-    printNames.forEach((name, i) => {
-      html += `<th style="border: 1px solid #333; padding: 5px; font-size: 11px;">${name || i + 1}</th>`;
-    });
-    html += `</tr>`;
-    html += `</thead>`;
-
-    // TBODY
-    html += `<tbody>`;
-    scoredRiders.forEach(r => {
-      const scoreObj = scoresheets.find(s => s.participant_id === r.id);
-      const dqStatus = scoreObj?.score_data?.disqualification;
-      const hideScores = dqStatus === 'DQ';
-      const displayDraw = dqStatus === 'OP' ? 'OP' : (r.draw_order || '');
-      const displayFinal = dqStatus === 'DQ' ? 'DQ' : (scoreObj ? scoreObj.total_score : '');
-      const pTotal = scoreObj && !hideScores ? scoreObj.score_data.penalties.reduce((a,b)=> Number(a) + Number(b), 0) : '';
-
-      html += `<tr>`;
-      html += `<td rowspan="2" style="border: 1px solid #333; padding: 8px; font-weight: bold;">${displayDraw}</td>`;
-      html += `<td rowspan="2" style="border: 1px solid #333; padding: 8px; font-weight: 900; font-size: 16px;">${r.start_number}</td>`;
-      html += `<td rowspan="2" style="border: 1px solid #333; padding: 8px; text-align: left;">
-                <div style="font-weight: bold; font-size: 14px;">${r.rider_name}</div>
-                <div style="font-style: italic; color: #555; font-size: 12px; margin-top: 3px;">${r.horse_name}</div>
-               </td>`;
-      html += `<td style="border: 1px solid #333; border-bottom: 1px dotted #888; padding: 5px; font-size: 10px; background: #fcfcfc; font-weight: bold;">PENALTY</td>`;
-      cols.forEach(i => {
-        const pen = (scoreObj && !hideScores && scoreObj.score_data.penalties[i] > 0) ? `-${scoreObj.score_data.penalties[i]}` : '';
-        html += `<td style="border: 1px solid #333; border-bottom: 1px dotted #888; padding: 5px; font-weight: bold; color: #d32f2f;">${pen}</td>`;
-      });
-      html += `<td rowspan="2" style="border: 1px solid #333; padding: 8px; font-weight: bold; color: #d32f2f;">${pTotal > 0 ? `-${pTotal}` : ''}</td>`;
-      html += `<td rowspan="2" style="border: 1px solid #333; padding: 8px; font-weight: 900; font-size: 18px; color: ${dqStatus ? '#d32f2f' : '#2e7d32'};">${displayFinal}</td>`;
-      html += `</tr>`;
-
-      html += `<tr>`;
-      html += `<td style="border: 1px solid #333; padding: 5px; font-size: 10px; background: #fcfcfc; font-weight: bold;">SCORE</td>`;
-      cols.forEach(i => {
-        let s = '';
-        if (scoreObj && !hideScores && scoreObj.score_data.maneuvers[i] !== 0) {
-          s = scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i];
-        } else if (scoreObj && !hideScores) {
-          s = ''; 
-        }
-        html += `<td style="border: 1px solid #333; padding: 5px; font-weight: bold;">${s}</td>`;
-      });
-      html += `</tr>`;
-    });
-    html += `</tbody></table></div>`;
-
-    // Podpis
-    html += `<div style="margin-top: 15px; font-size: 13px; display: flex; justify-content: space-between; align-items: flex-end;">`;
-    html += `<div><strong>Podpis rozhodčího:</strong><br/><br/><strong style="font-size: 16px; color: #0277bd;">${signatureObj?.judge_name || '______________________'}</strong></div>`;
-    html += `<div style="color: #888; font-size: 11px;">Kryptografický podpis SHA-256 evidován v systému.</div>`;
-    html += `</div></div>`;
-
-    return html;
-  };
-
-  const handleSendAllResults = async () => {
+  const handleSendPdfResults = async () => {
     if (!selectedEvent) return alert("Nejprve vyberte závod!");
-    
-    if (!confirm('TESTOVACÍ REŽIM: Vygeneruji stránku na Supabase a pošlu odkaz na vosa183@gmail.com. Pokračovat?')) return;
+    if (!pdfFile) return alert("Nejprve prosím vyberte PDF soubor s výsledky!");
+    if (!confirm('TESTOVACÍ REŽIM: Nahraji PDF a pošlu odkaz na vosa183@gmail.com. Pokračovat?')) return;
 
     setIsSendingEmails(true);
 
     const eventObj = events.find(e => e.id === selectedEvent);
-    const eventRegs = allRegistrations.filter(r => r.event_id === selectedEvent);
-    const disciplines = [...new Set(eventRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
-
     const emailsToSend = ['vosa183@gmail.com'];
 
-    // 1. Vytvoříme tělo HTML stránky
-    let contentHtml = `
-      <div style="max-width: 1000px; margin: 0 auto;">
-        <div style="text-align: center; margin-bottom: 30px; background: #3e2723; padding: 30px; border-radius: 12px; color: white;">
-          <h1 style="margin: 0; text-transform: uppercase; letter-spacing: 2px;">Oficiální výsledky závodů</h1>
-          <h2 style="color: #ffb300; margin: 10px 0 0 0;">${eventObj.name}</h2>
-          <p style="margin: 10px 0 0 0; color: #ccc;">Níže naleznete originální archy (scoresheety) ze všech disciplín.</p>
-        </div>
-    `;
-
-    disciplines.forEach(disc => {
-      const riders = eventRegs.filter(r => r.discipline === disc).sort((a, b) => {
-        const sa = scoresheets.find(s => s.participant_id === a.id);
-        const sb = scoresheets.find(s => s.participant_id === b.id);
-        const scoreA = sa?.total_score || -999;
-        const scoreB = sb?.total_score || -999;
-        return scoreB - scoreA;
-      });
-      contentHtml += generateHtmlTableForEmail(disc, riders);
-    });
-
-    contentHtml += `
-        <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; color: #666;">
-          <p>Děkujeme za účast a těšíme se na další starty!</p>
-          <strong>Tým JK Sobotka & jezdeckezavody.cz</strong>
-        </div>
-      </div>
-    `;
-
-    const fullHtmlDocument = `<!DOCTYPE html>
-    <html lang="cs">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Výsledky - ${eventObj.name}</title>
-      <style>
-        body { background-color: #f4ece4; padding: 20px; font-family: sans-serif; }
-        @media (max-width: 768px) {
-          body { padding: 10px; }
-        }
-      </style>
-    </head>
-    <body>
-      ${contentHtml}
-    </body>
-    </html>`;
-
     try {
-      const fileName = `vysledky_${selectedEvent}_${Date.now()}.html`;
+      // 1. Nahrání PDF do Supabase (do bucketu patterns, který je veřejný a spolehlivý)
+      const fileExt = pdfFile.name.split('.').pop();
+      const fileName = `vysledky_${selectedEvent}_${Date.now()}.${fileExt}`;
       
-      // ZMĚNA 2: OPRAVENÉ NAHRÁVÁNÍ NA SUPABASE, ABY SE OTEVŘELA WEBOVÁ STRÁNKA
       const { error: uploadError } = await supabase.storage.from('patterns').upload(
         fileName, 
-        fullHtmlDocument, 
+        pdfFile, 
         { 
-          contentType: 'text/html; charset=UTF-8', 
+          contentType: 'application/pdf', 
           upsert: true 
         }
       );
@@ -237,25 +100,26 @@ export default function TiskoveCentrum() {
         throw new Error('Chyba při nahrávání do Supabase: ' + uploadError.message);
       }
 
-      // 3. Získáme veřejný odkaz na nahranou stránku
+      // 2. Získání veřejného odkazu na PDF
       const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
-      // 4. Odešleme čistý textový e-mail s odkazem
-      const emailText = `Krásný den,\n\ngratulujeme k dokončení závodů "${eventObj.name}"!\n\nKompletní výsledkové archy všech disciplín (včetně hodnocení manévrů od rozhodčího) jsme zpracovali a nahráli pro Vás na tento bezpečný odkaz. Stačí na něj kliknout a výsledky si pohodlně prohlédnout z mobilu i počítače:\n\n👉 ODKAZ NA VÝSLEDKY:\n${publicUrl}\n\nOriginální papírové archy s podpisy rozhodčího jsou k nahlédnutí u pořadatele.\n\nDěkujeme za Vaši účast a skvělou atmosféru. Těšíme se na Vás na dalších závodech!\n\nTým JK Sobotka\njezdeckezavody.cz`;
+      // 3. Odeslání čistého textového e-mailu s odkazem
+      const emailText = `Krásný den,\n\ngratulujeme k dokončení závodů "${eventObj.name}"!\n\nKompletní výsledkové archy všech disciplín (včetně hodnocení manévrů od rozhodčího) naleznete v přiloženém PDF dokumentu. Stačí kliknout na tento bezpečný odkaz a výsledky si prohlédnout nebo stáhnout:\n\n👉 ODKAZ NA VÝSLEDKY (PDF):\n${publicUrl}\n\nOriginální papírové archy s podpisy rozhodčího jsou k nahlédnutí u pořadatele.\n\nDěkujeme za Vaši účast a skvělou atmosféru. Těšíme se na Vás na dalších závodech!\n\nTým JK Sobotka\njezdeckezavody.cz`;
 
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subject: `[VÝSLEDKY] ${eventObj.name}`,
+          subject: `[VÝSLEDKY PDF] ${eventObj.name}`,
           text: emailText,
           emails: emailsToSend
         })
       });
 
       if (response.ok) {
-        alert(`TEST ODESLÁN! Výsledky byly vytvořeny a odkaz letí na vosa183@gmail.com.`);
+        alert(`TEST ODESLÁN! PDF bylo nahráno a odkaz odeslán na vosa183@gmail.com.`);
+        setPdfFile(null); // Resetujeme formulář
       } else {
         throw new Error('Server pro odeslání e-mailu odmítl požadavek.');
       }
@@ -340,14 +204,12 @@ export default function TiskoveCentrum() {
             return a.start_number - b.start_number;
           });
 
-          // Pokud tiskneme vyplněné, necháme jen ty se skóre
           if (mode === 'filled') {
             ridersInDiscipline = ridersInDiscipline.filter(r => scoresheets.some(s => s.participant_id === r.id));
           }
 
           if (ridersInDiscipline.length === 0) return null;
 
-          // Počet sloupců a názvy manévrů
           let activeCount = 10; 
           let printNames = Array(10).fill('');
 
@@ -356,7 +218,7 @@ export default function TiskoveCentrum() {
             const maneuverNames = signatureObj?.score_data?.maneuverNames || Array(20).fill('');
             let maxIndex = 0;
             for(let i=0; i<20; i++){
-               if(maneuverNames[i] && maneuverNames[i].trim() !== maxIndex) maxIndex = i + 1;
+               if(maneuverNames[i] && maneuverNames[i].trim() !== '') maxIndex = i + 1;
             }
             activeCount = maxIndex > 0 ? maxIndex : 10;
             printNames = maneuverNames.slice(0, activeCount);
@@ -475,7 +337,7 @@ export default function TiskoveCentrum() {
       </div>
 
       <div className="no-print" style={{ maxWidth: '900px', margin: '20px auto', padding: '30px', background: '#fff', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}>
-        <h2 style={{ marginTop: 0, color: '#0277bd', borderBottom: '2px solid #e3f2fd', paddingBottom: '10px' }}>Nastavení tisku a test rozesílky</h2>
+        <h2 style={{ marginTop: 0, color: '#0277bd', borderBottom: '2px solid #e3f2fd', paddingBottom: '10px' }}>Nastavení tisku a odeslání PDF</h2>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div>
@@ -487,7 +349,7 @@ export default function TiskoveCentrum() {
           </div>
 
           <div>
-            <label style={styles.label}>2. Co chcete vytisknout?</label>
+            <label style={styles.label}>2. Co chcete vytisknout na tiskárně?</label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button 
                 onClick={() => setPrintType('empty')} 
@@ -516,19 +378,35 @@ export default function TiskoveCentrum() {
               disabled={!selectedEvent} 
               style={{ ...styles.btnPrimary, flex: 1, opacity: selectedEvent ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
             >
-              🖨️ TISKNOUT NA PAPÍR
+              🖨️ TISKNOUT NA PAPÍR (nebo Uložit jako PDF)
             </button>
-            
-            {printType === 'filled' && (
-              <button 
-                onClick={handleSendAllResults} 
-                disabled={!selectedEvent || isSendingEmails} 
-                style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
-              >
-                {isSendingEmails ? 'Odesílám test...' : '📧 TEST: ODESLAT TABULKY JAKO ODKAZ'}
-              </button>
-            )}
           </div>
+
+          {/* NOVÁ SEKCE PRO ODESLÁNÍ PDF Z TVÉHO NÁPADU */}
+          {printType === 'filled' && (
+            <div style={{ marginTop: '20px', padding: '20px', background: '#fff3e0', borderRadius: '8px', border: '2px solid #e65100' }}>
+              <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>📧 Odeslat výsledky jezdcům (PDF)</h3>
+              <p style={{ margin: '0 0 15px 0', fontSize: '0.9rem', color: '#555' }}>
+                1. Klikněte nahoře na "TISKNOUT NA PAPÍR" a v okně prohlížeče vyberte <strong>"Uložit jako PDF"</strong>.<br/>
+                2. Zde klikněte na "Procházet...", vložte uložené PDF a odešlete hromadný e-mail.
+              </p>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input 
+                  type="file" 
+                  accept="application/pdf" 
+                  onChange={e => setPdfFile(e.target.files[0])} 
+                  style={{ flex: 1, padding: '10px', border: '1px solid #ccc', borderRadius: '6px', background: '#fff' }} 
+                />
+                <button 
+                  onClick={handleSendPdfResults} 
+                  disabled={!selectedEvent || isSendingEmails || !pdfFile} 
+                  style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', margin: 0, opacity: (!selectedEvent || isSendingEmails || !pdfFile) ? 0.5 : 1, fontSize: '1.1rem', padding: '12px' }}
+                >
+                  {isSendingEmails ? 'Odesílám test...' : 'TEST: ODESLAT PDF NA MEJL'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
