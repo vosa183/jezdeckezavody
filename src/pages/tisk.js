@@ -23,7 +23,6 @@ export default function TiskoveCentrum() {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [printType, setPrintType] = useState('empty'); // 'empty', 'filled', 'vet'
   
-  // TADY JE TVOJE NOVÁ FUNKCE PRO NAHRÁNÍ PDF
   const [pdfFile, setPdfFile] = useState(null);
 
   useEffect(() => {
@@ -40,7 +39,7 @@ export default function TiskoveCentrum() {
 
       const { data: prof } = await supabase.from('profiles').select('role').eq('id', user.id).single();
       
-      // ZABEZPEČENÍ: JEN ADMIN A SUPERADMIN
+      // ZABEZPEČENÍ: POUZE ADMIN A SUPERADMIN
       if (!['admin', 'superadmin'].includes(prof?.role)) {
         window.location.href = '/kone';
         return;
@@ -75,15 +74,27 @@ export default function TiskoveCentrum() {
   const handleSendPdfResults = async () => {
     if (!selectedEvent) return alert("Nejprve vyberte závod!");
     if (!pdfFile) return alert("Nejprve prosím vyberte PDF soubor s výsledky!");
-    if (!confirm('TESTOVACÍ REŽIM: Nahraji PDF a pošlu odkaz na vosa183@gmail.com. Pokračovat?')) return;
+
+    const eventObj = events.find(e => e.id === selectedEvent);
+    const eventRegs = allRegistrations.filter(r => r.event_id === selectedEvent);
+
+    // OSTRA VERZE: Sesbíráme e-maily všech jezdců přihlášených do tohoto závodu
+    const uniqueUserIds = [...new Set(eventRegs.map(r => r.user_id))];
+    const emailsToSend = uniqueUserIds.map(uid => {
+      const prof = allProfiles.find(p => p.id === uid);
+      return prof ? prof.email : null;
+    }).filter(email => email && email.includes('@'));
+
+    if (emailsToSend.length === 0) {
+      return alert("Nebyly nalezeny žádné e-mailové adresy účastníků.");
+    }
+
+    if (!confirm(`OSTRÁ ROZESÍLKA: Opravdu chcete odeslat odkaz na PDF celkem ${emailsToSend.length} účastníkům?`)) return;
 
     setIsSendingEmails(true);
 
-    const eventObj = events.find(e => e.id === selectedEvent);
-    const emailsToSend = ['vosa183@gmail.com'];
-
     try {
-      // 1. Nahrání PDF do Supabase (do bucketu patterns, který je veřejný a spolehlivý)
+      // 1. Nahrání PDF do Supabase
       const fileExt = pdfFile.name.split('.').pop();
       const fileName = `vysledky_${selectedEvent}_${Date.now()}.${fileExt}`;
       
@@ -104,22 +115,22 @@ export default function TiskoveCentrum() {
       const { data: urlData } = supabase.storage.from('patterns').getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
-      // 3. Odeslání čistého textového e-mailu s odkazem
-      const emailText = `Krásný den,\n\ngratulujeme k dokončení závodů "${eventObj.name}"!\n\nKompletní výsledkové archy všech disciplín (včetně hodnocení manévrů od rozhodčího) naleznete v přiloženém PDF dokumentu. Stačí kliknout na tento bezpečný odkaz a výsledky si prohlédnout nebo stáhnout:\n\n👉 ODKAZ NA VÝSLEDKY (PDF):\n${publicUrl}\n\nOriginální papírové archy s podpisy rozhodčího jsou k nahlédnutí u pořadatele.\n\nDěkujeme za Vaši účast a skvělou atmosféru. Těšíme se na Vás na dalších závodech!\n\nTým JK Sobotka\njezdeckezavody.cz`;
+      // 3. Odeslání e-mailu s odkazem všem jezdcům
+      const emailText = `Krásný den,\n\ngratulujeme k dokončení závodů "${eventObj.name}"!\n\nKompletní výsledkové archy všech disciplín (včetně hodnocení manévrů od rozhodčího) naleznete v přiloženém PDF dokumentu na tomto odkazu. Stačí kliknout a výsledky si prohlédnout nebo stáhnout:\n\n👉 ODKAZ NA VÝSLEDKY (PDF):\n${publicUrl}\n\nOriginální papírové archy s podpisy rozhodčího jsou k nahlédnutí u pořadatele.\n\nDěkujeme za Vaši účast a skvělou atmosféru. Těšíme se na Vás na dalších závodech!\n\nTým JK Sobotka\njezdeckezavody.cz`;
 
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subject: `[VÝSLEDKY PDF] ${eventObj.name}`,
+          subject: `Oficiální výsledky (PDF): ${eventObj.name}`,
           text: emailText,
           emails: emailsToSend
         })
       });
 
       if (response.ok) {
-        alert(`TEST ODESLÁN! PDF bylo nahráno a odkaz odeslán na vosa183@gmail.com.`);
-        setPdfFile(null); // Resetujeme formulář
+        alert(`HOTOVO! PDF bylo nahráno a odkaz odeslán všem ${emailsToSend.length} účastníkům.`);
+        setPdfFile(null); 
       } else {
         throw new Error('Server pro odeslání e-mailu odmítl požadavek.');
       }
@@ -382,13 +393,12 @@ export default function TiskoveCentrum() {
             </button>
           </div>
 
-          {/* NOVÁ SEKCE PRO ODESLÁNÍ PDF Z TVÉHO NÁPADU */}
           {printType === 'filled' && (
             <div style={{ marginTop: '20px', padding: '20px', background: '#fff3e0', borderRadius: '8px', border: '2px solid #e65100' }}>
-              <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>📧 Odeslat výsledky jezdcům (PDF)</h3>
+              <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>📧 Odeslat výsledky všem účastníkům (PDF)</h3>
               <p style={{ margin: '0 0 15px 0', fontSize: '0.9rem', color: '#555' }}>
-                1. Klikněte nahoře na "TISKNOUT NA PAPÍR" a v okně prohlížeče vyberte <strong>"Uložit jako PDF"</strong>.<br/>
-                2. Zde klikněte na "Procházet...", vložte uložené PDF a odešlete hromadný e-mail.
+                1. Klikněte nahoře na "TISKNOUT NA PAPÍR" a v tiskovém okně prohlížeče vyberte <strong>"Uložit jako PDF"</strong>.<br/>
+                2. Zde klikněte na "Procházet...", vložte uložené PDF a odešlete hromadný e-mail všem účastníkům.
               </p>
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <input 
@@ -402,7 +412,7 @@ export default function TiskoveCentrum() {
                   disabled={!selectedEvent || isSendingEmails || !pdfFile} 
                   style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', margin: 0, opacity: (!selectedEvent || isSendingEmails || !pdfFile) ? 0.5 : 1, fontSize: '1.1rem', padding: '12px' }}
                 >
-                  {isSendingEmails ? 'Odesílám test...' : 'TEST: ODESLAT PDF NA MEJL'}
+                  {isSendingEmails ? 'Odesílám...' : '📧 ODESLAT PDF VŠEM ÚČASTNÍKŮM'}
                 </button>
               </div>
             </div>
@@ -448,7 +458,7 @@ const styles = {
   topNav: { display: 'flex', background: '#212121', padding: '15px 30px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' },
   btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
   label: { display: 'block', fontSize: '1rem', fontWeight: 'bold', color: '#333', marginBottom: '8px' },
-  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
+  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '2px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
   btnSelect: { flex: 1, border: '1px solid #ddd', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.2s' },
   btnPrimary: { width: '100%', background: '#0277bd', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', transition: 'opacity 0.2s' }
 };
