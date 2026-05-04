@@ -67,9 +67,102 @@ export default function TiskoveCentrum() {
     window.print();
   };
 
+  // POMOCNÁ FUNKCE: Vygeneruje kompletní HTML tabulku Scoresheetu pro e-mail
+  const generateHtmlTableForEmail = (discipline, riders) => {
+    const scoredRiders = riders.filter(r => scoresheets.some(s => s.participant_id === r.id));
+    if (scoredRiders.length === 0) return "";
+
+    const signatureObj = scoresheets.find(s => s.participant_id === scoredRiders[0].id);
+    const maneuverNames = signatureObj?.score_data?.maneuverNames || Array(20).fill('');
+    let activeCount = 0;
+    for(let i=0; i<20; i++){
+       if(maneuverNames[i] && maneuverNames[i].trim() !== '') activeCount = i + 1;
+    }
+    if(activeCount === 0) activeCount = 10;
+    const printNames = maneuverNames.slice(0, activeCount);
+    const cols = Array.from({length: activeCount}, (_, i) => i);
+
+    let html = `<div style="margin-bottom: 40px; font-family: sans-serif;">`;
+    html += `<div style="text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 15px;">`;
+    html += `<h2 style="margin: 0; font-size: 20px; text-transform: uppercase;">WESTERNOVÉ ZÁVODY POD HUMPRECHTEM</h2>`;
+    html += `<h3 style="margin: 5px 0 0 0; font-size: 16px;">VÝSLEDKY: ${discipline}</h3>`;
+    html += `</div>`;
+
+    html += `<table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse; border: 2px solid black; font-size: 12px; text-align: center;">`;
+    
+    // THEAD
+    html += `<thead style="background-color: #eeeeee;">`;
+    html += `<tr>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 5px; width: 40px;">DRAW</th>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 5px; width: 40px;">EXH#</th>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 5px; text-align: left; min-width: 120px;">JEZDEC / KŮŇ</th>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 3px; width: 30px;"></th>`;
+    html += `<th colspan="${activeCount}" style="border: 1px solid black; padding: 5px;">MANÉVRY</th>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 5px; width: 60px;">PENALTY<br/>TOTAL</th>`;
+    html += `<th rowspan="2" style="border: 1px solid black; padding: 5px; width: 70px;">FINAL<br/>SCORE</th>`;
+    html += `</tr>`;
+    html += `<tr>`;
+    printNames.forEach((name, i) => {
+      html += `<th style="border: 1px solid black; padding: 3px; font-size: 10px;">${name || i + 1}</th>`;
+    });
+    html += `</tr>`;
+    html += `</thead>`;
+
+    // TBODY
+    html += `<tbody>`;
+    scoredRiders.forEach(r => {
+      const scoreObj = scoresheets.find(s => s.participant_id === r.id);
+      const dqStatus = scoreObj?.score_data?.disqualification;
+      const hideScores = dqStatus === 'DQ';
+      const displayDraw = dqStatus === 'OP' ? 'OP' : (r.draw_order || '');
+      const displayFinal = dqStatus === 'DQ' ? 'DQ' : (scoreObj ? scoreObj.total_score : '');
+      const pTotal = scoreObj && !hideScores ? scoreObj.score_data.penalties.reduce((a,b)=> Number(a) + Number(b), 0) : '';
+
+      html += `<tr>`;
+      html += `<td rowspan="2" style="border: 1px solid black; padding: 5px; font-weight: bold;">${displayDraw}</td>`;
+      html += `<td rowspan="2" style="border: 1px solid black; padding: 5px; font-weight: 900; font-size: 14px;">${r.start_number}</td>`;
+      html += `<td rowspan="2" style="border: 1px solid black; padding: 5px; text-align: left;">
+                <div style="font-weight: bold;">${r.rider_name}</div>
+                <div style="font-style: italic; color: #444; font-size: 11px;">${r.horse_name}</div>
+               </td>`;
+      html += `<td style="border: 1px solid black; border-bottom: 1px dotted #888; padding: 3px; font-size: 10px; background: #f9f9f9; font-weight: bold;">PENALTY</td>`;
+      cols.forEach(i => {
+        const pen = (scoreObj && !hideScores && scoreObj.score_data.penalties[i] > 0) ? `-${scoreObj.score_data.penalties[i]}` : '';
+        html += `<td style="border: 1px solid black; border-bottom: 1px dotted #888; padding: 3px; font-weight: bold; color: red;">${pen}</td>`;
+      });
+      html += `<td rowspan="2" style="border: 1px solid black; padding: 5px; font-weight: bold;">${pTotal > 0 ? `-${pTotal}` : ''}</td>`;
+      html += `<td rowspan="2" style="border: 1px solid black; padding: 5px; font-weight: 900; font-size: 16px;">${displayFinal}</td>`;
+      html += `</tr>`;
+
+      html += `<tr>`;
+      html += `<td style="border: 1px solid black; padding: 3px; font-size: 10px; background: #f9f9f9; font-weight: bold;">SCORE</td>`;
+      cols.forEach(i => {
+        let s = '';
+        if (scoreObj && !hideScores && scoreObj.score_data.maneuvers[i] !== 0) {
+          s = scoreObj.score_data.maneuvers[i] > 0 ? `+${scoreObj.score_data.maneuvers[i]}` : scoreObj.score_data.maneuvers[i];
+        } else if (scoreObj && !hideScores) {
+          s = ''; 
+        }
+        html += `<td style="border: 1px solid black; padding: 3px;">${s}</td>`;
+      });
+      html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+
+    // Podpis
+    html += `<div style="margin-top: 10px; font-size: 12px; width: 100%; display: table;">`;
+    html += `<div style="display: table-cell; text-align: left;"><strong>Podpis rozhodčího / Judge's signature:</strong><br/><br/><strong style="font-size: 14px;">${signatureObj?.judge_name || '______________________'}</strong></div>`;
+    html += `<div style="display: table-cell; text-align: right; color: #666; font-size: 10px; vertical-align: bottom;">SHA-256 Otisk: Generováno systémem jezdeckezavody.cz</div>`;
+    html += `</div>`;
+
+    html += `</div><br/><br/>`;
+    return html;
+  };
+
   const handleSendAllResults = async () => {
     if (!selectedEvent) return alert("Nejprve vyberte závod!");
-    if (!confirm('TESTOVACÍ REŽIM: Opravdu chcete odeslat kompletní výsledky na testovací adresu vosa183@gmail.com?')) return;
+    
+    if (!confirm('TESTOVACÍ REŽIM: Opravdu chcete odeslat kompletní tabulky scoresheetů na testovací adresu vosa183@gmail.com?')) return;
 
     setIsSendingEmails(true);
 
@@ -77,71 +170,49 @@ export default function TiskoveCentrum() {
     const eventRegs = allRegistrations.filter(r => r.event_id === selectedEvent);
     const disciplines = [...new Set(eventRegs.map(r => r.discipline))].sort((a, b) => a.localeCompare(b, 'cs'));
 
-    // TESTOVACÍ OMEZENÍ - Posíláme pouze na jeden zadaný email
     const emailsToSend = ['vosa183@gmail.com'];
 
-    // GENERUJEME PĚKNÝ TEXTOVÝ SCORESHEET PRO EMAIL
-    let emailBody = `==========================================\n`;
-    emailBody += `🏆 OFICIÁLNÍ VÝSLEDKY: ${eventObj.name.toUpperCase()}\n`;
-    emailBody += `==========================================\n\n`;
-    emailBody += `Krásný den,\n\ngratulujeme k dokončení závodů! Níže naleznete kompletní výsledkovou listinu všech disciplín dnešního dne.\n\n`;
+    // Vytvoříme úvodní HTML kostru pro e-mail
+    let emailHtml = `
+      <div style="font-family: sans-serif; color: #000; max-width: 900px; margin: 0 auto; background: #fff; padding: 20px;">
+        <p style="font-size: 14px;">Dobrý den,</p>
+        <p style="font-size: 14px;">v příloze (níže v e-mailu) naleznete kompletní oficiální scoresheety z dnešních závodů. Gratulujeme všem umístěným!</p>
+        <hr style="border: 1px solid #ccc; margin: 30px 0;" />
+    `;
 
+    // Pro každou disciplínu vygenerujeme HTML tabulku a přidáme ji do zprávy
     disciplines.forEach(disc => {
-      const ridersInDisc = eventRegs.filter(r => r.discipline === disc);
-      const scoredRiders = ridersInDisc
-        .map(r => {
-          const sObj = scoresheets.find(s => s.participant_id === r.id);
-          const sc = sObj?.score_data?.disqualification ? sObj.score_data.disqualification : (sObj ? Number(sObj.total_score) : -999);
-          return { ...r, totalScore: sc };
-        })
-        .filter(r => r.totalScore !== -999)
-        .sort((a, b) => {
-          if (a.draw_order !== null && b.draw_order !== null) return a.draw_order - b.draw_order;
-          if (a.draw_order !== null) return -1;
-          if (b.draw_order !== null) return 1;
-          if (a.totalScore === 'DQ') return 1;
-          if (b.totalScore === 'DQ') return -1;
-          if (a.totalScore === 'OP') return 1;
-          if (b.totalScore === 'OP') return -1;
-          return b.totalScore - a.totalScore;
-        });
-
-      if (scoredRiders.length > 0) {
-        emailBody += `📍 DISCIPLÍNA: ${disc.toUpperCase()}\n`;
-        emailBody += `------------------------------------------\n`;
-        
-        scoredRiders.forEach((r, index) => {
-          let medal = '•';
-          if (r.totalScore === 'DQ' || r.totalScore === 'OP') medal = '✖';
-          else if (index === 0) medal = '🥇';
-          else if (index === 1) medal = '🥈';
-          else if (index === 2) medal = '🥉';
-          
-          const scoreText = (r.totalScore === 'DQ' || r.totalScore === 'OP') ? r.totalScore : `${r.totalScore} b.`;
-          emailBody += `${medal} ${index + 1}. místo: ${r.rider_name} (${r.horse_name}) - Výsledek: ${scoreText}\n`;
-        });
-        emailBody += `\n`;
-      }
+      const riders = eventRegs.filter(r => r.discipline === disc).sort((a, b) => {
+        const sa = scoresheets.find(s => s.participant_id === a.id);
+        const sb = scoresheets.find(s => s.participant_id === b.id);
+        const scoreA = sa?.total_score || -999;
+        const scoreB = sb?.total_score || -999;
+        return scoreB - scoreA;
+      });
+      emailHtml += generateHtmlTableForEmail(disc, riders);
     });
 
-    emailBody += `\n==========================================\n`;
-    emailBody += `Děkujeme za Vaši účast a těšíme se na příště!\n`;
-    emailBody += `Tým JK Sobotka & Jezdecké Impérium\n`;
-    emailBody += `==========================================`;
+    emailHtml += `
+        <hr style="border: 1px solid #ccc; margin: 30px 0;" />
+        <p style="font-size: 12px; color: #555; text-align: center;">Tento e-mail byl automaticky odeslán z portálu jezdeckezavody.cz</p>
+      </div>
+    `;
 
     try {
+      // Odesíláme jako HTML i TEXT parametr, aby to server přijal v každém případě
       const response = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          subject: `[TEST VÝSLEDKY] ${eventObj.name}`,
-          text: emailBody, // Posíláme jako prostý text
+          subject: `[VÝSLEDKY SCORESHEETS] ${eventObj.name}`,
+          html: emailHtml,
+          text: emailHtml, // Fallback pro tvé API
           emails: emailsToSend
         })
       });
 
       if (response.ok) {
-        alert(`TEST ODESLÁN! Zkontrolujte schránku vosa183@gmail.com.`);
+        alert(`TEST ODESLÁN! Zkontrolujte schránku vosa183@gmail.com. V e-mailu by měly být kompletní tabulky.`);
       } else {
         throw new Error('Server odmítl požadavek.');
       }
@@ -336,7 +407,7 @@ export default function TiskoveCentrum() {
                     </h3>
                   </div>
                   <div style={{ flex: 1, textAlign: 'right', fontSize: '0.7rem', color: '#666' }}>
-                    <strong>SHA-256 Otisk:</strong> Generováno systémem Jezdecké Impérium
+                    <strong>SHA-256 Otisk:</strong> Generováno systémem jezdeckezavody.cz
                   </div>
                 </div>
               )}
@@ -411,7 +482,7 @@ export default function TiskoveCentrum() {
                 disabled={!selectedEvent || isSendingEmails} 
                 style={{ ...styles.btnPrimary, flex: 1, background: '#e65100', opacity: selectedEvent && !isSendingEmails ? 1 : 0.5, fontSize: '1.2rem', padding: '15px' }}
               >
-                {isSendingEmails ? 'Odesílám test...' : '📧 TEST: POSLAT TEXT VÝSLEDKŮ'}
+                {isSendingEmails ? 'Odesílám test...' : '📧 TEST: ODESLAT TABULKY NA EMAIL'}
               </button>
             )}
           </div>
@@ -456,7 +527,7 @@ const styles = {
   topNav: { display: 'flex', background: '#212121', padding: '15px 30px', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 10px rgba(0,0,0,0.2)' },
   btnNavOutline: { background: 'transparent', border: '1px solid #ffb300', color: '#ffb300', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' },
   label: { display: 'block', fontSize: '1rem', fontWeight: 'bold', color: '#333', marginBottom: '8px' },
-  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '2px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
+  input: { width: '100%', padding: '15px', borderRadius: '8px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '1.1rem' },
   btnSelect: { flex: 1, border: '1px solid #ddd', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1rem', transition: 'all 0.2s' },
   btnPrimary: { width: '100%', background: '#0277bd', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', transition: 'opacity 0.2s' }
 };
